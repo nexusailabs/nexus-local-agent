@@ -139,7 +139,11 @@ export const PlanStep = z.object({
   kind: TaskKind,
   acceptance: z.array(z.string()).default([]),
   dependsOn: z.array(z.string()).default([]),
-  execution: ExecutionRequirements.default({})
+  execution: ExecutionRequirements.default({
+    requiredCapabilities: [],
+    preferredCapabilities: [],
+    avoidNodes: []
+  })
 });
 export type PlanStep = z.infer<typeof PlanStep>;
 
