@@ -1,0 +1,38 @@
+{
+  "name": "nexus-local-agent",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=22.14"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "test": "vitest run",
+    "dev:control": "tsx apps/control-plane/src/index.ts",
+    "dev:node": "tsx apps/node-daemon/src/index.ts",
+    "format": "prettier --write .",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.0",
+    "@fastify/sensible": "^6.0.0",
+    "better-sqlite3": "^12.0.0",
+    "fastify": "^5.0.0",
+    "nanoid": "^5.0.0",
+    "openai": "^5.0.0",
+    "pino": "^9.0.0",
+    "yaml": "^2.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.0.0"
+  }
+}

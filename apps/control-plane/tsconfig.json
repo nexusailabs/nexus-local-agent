@@ -1,0 +1,1 @@
+{"extends":"../../tsconfig.base.json","compilerOptions":{"rootDir":"src","outDir":"dist"},"include":["src/**/*.ts"],"references":[{"path":"../../packages/protocol"},{"path":"../../packages/provider"},{"path":"../../packages/router"},{"path":"../../packages/orchestrator"},{"path":"../../packages/worktree"},{"path":"../../packages/executor"}]}
