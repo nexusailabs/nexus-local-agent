@@ -1,13 +1,30 @@
-import type { NodeSpec, TaskKind } from '@nexus/protocol';
+import type {
+  ExecutionRequirements,
+  ModelCapability,
+  NodeCapability,
+  NodeSpec,
+  TaskKind
+} from '@nexus/protocol';
 
-export type RouteDecision = {
+export type InferenceRoute = {
   nodeId: string;
   modelId: string;
   score: number;
   reasons: string[];
 };
 
-const kindCaps: Record<TaskKind, string[]> = {
+export type ExecutionRoute = {
+  nodeId: string;
+  score: number;
+  reasons: string[];
+};
+
+export type StepRoute = {
+  inference: InferenceRoute;
+  execution: ExecutionRoute;
+};
+
+const kindModelCaps: Record<TaskKind, ModelCapability[]> = {
   plan: ['reasoning', 'long-context'],
   code: ['coding', 'tool-use'],
   shell: ['tool-use'],
@@ -18,24 +35,122 @@ const kindCaps: Record<TaskKind, string[]> = {
   general: ['reasoning']
 };
 
-export function routeTask(nodes: NodeSpec[], kind: TaskKind): RouteDecision {
-  const required = kindCaps[kind] ?? [];
-  const candidates = nodes.flatMap((node) => node.models.map((model) => ({ node, model })));
-  if (candidates.length === 0) throw new Error('No models registered');
+const kindNodeCaps: Record<TaskKind, NodeCapability[]> = {
+  plan: ['exec'],
+  code: ['exec', 'fs', 'git'],
+  shell: ['exec'],
+  build: ['exec'],
+  test: ['exec'],
+  review: ['exec'],
+  research: ['exec'],
+  general: ['exec']
+};
+
+const reachabilityScore = { local: 18, lan: 12, wan: -8 } as const;
+
+export function routeInference(nodes: NodeSpec[], kind: TaskKind): InferenceRoute {
+  const required = kindModelCaps[kind] ?? [];
+  const candidates = nodes
+    .filter((node) => node.capabilities.includes('inference'))
+    .flatMap((node) => node.models.map((model) => ({ node, model })));
+
+  if (candidates.length === 0) throw new Error('No live inference models registered');
 
   const scored = candidates.map(({ node, model }) => {
-    const capScore = required.reduce((n, cap) => n + (model.capabilities.includes(cap as never) ? 18 : -10), 0);
-    const brainBias = ['plan', 'review', 'research'].includes(kind) && node.role === 'brain' ? 15 : 0;
-    const workerBias = ['code', 'shell', 'build', 'test'].includes(kind) && node.role === 'worker' ? 12 : 0;
-    const score = capScore + brainBias + workerBias + model.qualityClass * 0.45 + model.speedClass * 0.25 - model.costClass * 0.05;
+    const capScore = required.reduce(
+      (score, cap) => score + (model.capabilities.includes(cap) ? 18 : -14),
+      0
+    );
+    const score =
+      capScore +
+      model.qualityClass * 0.48 +
+      model.speedClass * 0.24 -
+      model.costClass * 0.04 +
+      reachabilityScore[node.reachability] +
+      node.reliabilityClass * 0.08;
+
     return {
       nodeId: node.id,
       modelId: model.id,
       score,
-      reasons: [`capabilities:${capScore}`, `quality:${model.qualityClass}`, `speed:${model.speedClass}`, `role:${node.role}`]
+      reasons: [
+        `model-capabilities:${capScore}`,
+        `quality:${model.qualityClass}`,
+        `speed:${model.speedClass}`,
+        `reachability:${node.reachability}`,
+        `reliability:${node.reliabilityClass}`
+      ]
     };
   });
 
   scored.sort((a, b) => b.score - a.score);
   return scored[0]!;
 }
+
+function hasAll(node: NodeSpec, capabilities: NodeCapability[]): boolean {
+  return capabilities.every((capability) => node.capabilities.includes(capability));
+}
+
+export function routeExecution(
+  nodes: NodeSpec[],
+  kind: TaskKind,
+  requirements: ExecutionRequirements = {
+    requiredCapabilities: [],
+    preferredCapabilities: [],
+    avoidNodes: []
+  }
+): ExecutionRoute {
+  const required = [...new Set([...kindNodeCaps[kind], ...requirements.requiredCapabilities])];
+  const candidates = nodes.filter((node) =>
+    !requirements.avoidNodes.includes(node.id) &&
+    hasAll(node, required) &&
+    (!requirements.platform || node.platform === requirements.platform) &&
+    (!requirements.region || node.region === requirements.region)
+  );
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `No live execution node satisfies kind=${kind} capabilities=${required.join(',')} platform=${requirements.platform ?? '*'} region=${requirements.region ?? '*'}`
+    );
+  }
+
+  const scored = candidates.map((node) => {
+    const preferred = requirements.preferredCapabilities.reduce(
+      (score, capability) => score + (node.capabilities.includes(capability) ? 8 : 0),
+      0
+    );
+    const score =
+      node.executionClass * 0.45 +
+      node.reliabilityClass * 0.28 +
+      reachabilityScore[node.reachability] +
+      preferred;
+
+    return {
+      nodeId: node.id,
+      score,
+      reasons: [
+        `required:${required.join(',') || 'none'}`,
+        `preferred:${preferred}`,
+        `execution:${node.executionClass}`,
+        `reliability:${node.reliabilityClass}`,
+        `reachability:${node.reachability}`,
+        `region:${node.region ?? 'unspecified'}`
+      ]
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]!;
+}
+
+export function routeStep(
+  nodes: NodeSpec[],
+  kind: TaskKind,
+  requirements?: ExecutionRequirements
+): StepRoute {
+  const inference = routeInference(nodes, kind);
+  const execution = routeExecution(nodes, kind, requirements);
+  return { inference, execution };
+}
+
+export const routeTask = routeInference;

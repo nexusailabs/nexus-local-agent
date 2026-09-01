@@ -1,11 +1,30 @@
 import { z } from 'zod';
 
-export const NodeRole = z.enum(['brain', 'worker', 'hybrid']);
-export type NodeRole = z.infer<typeof NodeRole>;
+export const NodeCapability = z.enum([
+  'control',
+  'control-standby',
+  'inference',
+  'exec',
+  'fs',
+  'git',
+  'containers',
+  'browser',
+  'ci',
+  'network-probe',
+  'long-running'
+]);
+export type NodeCapability = z.infer<typeof NodeCapability>;
+
+export const NodePlatform = z.enum(['darwin-arm64', 'linux-x64']);
+export type NodePlatform = z.infer<typeof NodePlatform>;
+
+export const NodeReachability = z.enum(['local', 'lan', 'wan']);
+export type NodeReachability = z.infer<typeof NodeReachability>;
 
 export const ModelCapability = z.enum([
   'reasoning', 'coding', 'tool-use', 'vision', 'long-context', 'fast-draft', 'review'
 ]);
+export type ModelCapability = z.infer<typeof ModelCapability>;
 
 export const ModelSpec = z.object({
   id: z.string().min(1),
@@ -23,14 +42,48 @@ export type ModelSpec = z.infer<typeof ModelSpec>;
 
 export const NodeSpec = z.object({
   id: z.string().min(1),
-  role: NodeRole,
   baseUrl: z.string().url(),
-  platform: z.enum(['darwin-arm64', 'linux-x64']),
+  platform: NodePlatform,
   memoryGb: z.number().positive(),
+  capabilities: z.array(NodeCapability).default([]),
+  reachability: NodeReachability.default('lan'),
+  region: z.string().min(1).optional(),
   tags: z.array(z.string()).default([]),
+  executionClass: z.number().int().min(0).max(100).default(50),
+  reliabilityClass: z.number().int().min(0).max(100).default(80),
   models: z.array(ModelSpec).default([])
 });
 export type NodeSpec = z.infer<typeof NodeSpec>;
+
+export const NodeMetrics = z.object({
+  freeMemoryBytes: z.number().nonnegative().optional(),
+  load1: z.number().nonnegative().optional(),
+  uptimeSeconds: z.number().nonnegative().optional()
+});
+export type NodeMetrics = z.infer<typeof NodeMetrics>;
+
+export const NodeAdvertisement = z.object({
+  node: NodeSpec,
+  metrics: NodeMetrics.default({}),
+  ts: z.string().datetime().optional()
+});
+export type NodeAdvertisement = z.infer<typeof NodeAdvertisement>;
+
+export const NodeHeartbeat = z.object({
+  nodeId: z.string().min(1),
+  metrics: NodeMetrics.default({}),
+  ts: z.string().datetime().optional()
+});
+export type NodeHeartbeat = z.infer<typeof NodeHeartbeat>;
+
+export const RuntimeNode = z.object({
+  node: NodeSpec,
+  metrics: NodeMetrics.default({}),
+  source: z.enum(['dynamic', 'bootstrap']),
+  status: z.enum(['online', 'stale']),
+  lastSeenAt: z.string().datetime()
+});
+export type RuntimeNode = z.infer<typeof RuntimeNode>;
 
 export const TaskKind = z.enum([
   'plan', 'code', 'shell', 'build', 'test', 'review', 'research', 'general'
@@ -41,6 +94,15 @@ export const TaskStatus = z.enum([
   'queued', 'planning', 'running', 'verifying', 'repairing', 'succeeded', 'failed', 'cancelled'
 ]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
+
+export const ExecutionRequirements = z.object({
+  requiredCapabilities: z.array(NodeCapability).default([]),
+  preferredCapabilities: z.array(NodeCapability).default([]),
+  platform: NodePlatform.optional(),
+  region: z.string().min(1).optional(),
+  avoidNodes: z.array(z.string()).default([])
+});
+export type ExecutionRequirements = z.infer<typeof ExecutionRequirements>;
 
 export const AgentTask = z.object({
   id: z.string().min(1),
@@ -76,7 +138,8 @@ export const PlanStep = z.object({
   description: z.string(),
   kind: TaskKind,
   acceptance: z.array(z.string()).default([]),
-  dependsOn: z.array(z.string()).default([])
+  dependsOn: z.array(z.string()).default([]),
+  execution: ExecutionRequirements.default({})
 });
 export type PlanStep = z.infer<typeof PlanStep>;
 

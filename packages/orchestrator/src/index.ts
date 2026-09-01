@@ -1,6 +1,6 @@
 import { AgentPlan, type AgentPlan as AgentPlanType, type AgentTask, type NodeSpec } from '@nexus/protocol';
 import { LocalModelClient } from '@nexus/provider';
-import { routeTask } from '@nexus/router';
+import { routeInference } from '@nexus/router';
 
 function extractJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
@@ -8,22 +8,32 @@ function extractJson(text: string): unknown {
   return JSON.parse(raw);
 }
 
+export type NodeSource = () => NodeSpec[];
+
 export class Orchestrator {
-  constructor(private readonly nodes: NodeSpec[]) {}
+  constructor(private readonly nodes: NodeSource) {}
 
   private getModel(nodeId: string, modelId: string) {
-    const node = this.nodes.find((n) => n.id === nodeId);
-    const model = node?.models.find((m) => m.id === modelId);
+    const nodes = this.nodes();
+    const node = nodes.find((candidate) => candidate.id === nodeId);
+    const model = node?.models.find((candidate) => candidate.id === modelId);
     if (!node || !model) throw new Error(`Route target missing: ${nodeId}/${modelId}`);
     return { node, model };
   }
 
   async plan(task: AgentTask): Promise<AgentPlanType> {
-    const route = routeTask(this.nodes, 'plan');
+    const route = routeInference(this.nodes(), 'plan');
     const { model } = this.getModel(route.nodeId, route.modelId);
     const client = new LocalModelClient(model);
     const text = await client.complete({
-      system: 'You are the planning brain of Nexus Local Agent. Return ONLY valid JSON matching: {summary:string,steps:[{id,title,description,kind,acceptance:string[],dependsOn:string[]}],globalAcceptance:string[]}. Prefer executable, independently verifiable steps.',
+      system: [
+        'You are the planning brain of Nexus Local Agent.',
+        'Return ONLY valid JSON matching:',
+        '{summary:string,steps:[{id,title,description,kind,acceptance:string[],dependsOn:string[],execution:{requiredCapabilities:string[],preferredCapabilities:string[],platform?:string,region?:string,avoidNodes:string[]}}],globalAcceptance:string[]}.',
+        'Inference and execution are separate resources. A step may execute on a node that runs no model.',
+        'Use execution constraints only when they are materially required, e.g. macOS clean CI or region=hk.',
+        'Prefer executable, independently verifiable steps.'
+      ].join('\n'),
       messages: [{ role: 'user', content: `Objective: ${task.objective}\nRepository: ${task.repoPath ?? 'none'}` }],
       maxTokens: 8192
     });
@@ -31,7 +41,7 @@ export class Orchestrator {
   }
 
   async verify(task: AgentTask, plan: AgentPlanType, evidence: string): Promise<{ pass: boolean; findings: string }> {
-    const route = routeTask(this.nodes, 'review');
+    const route = routeInference(this.nodes(), 'review');
     const { model } = this.getModel(route.nodeId, route.modelId);
     const client = new LocalModelClient(model);
     const result = await client.complete({
