@@ -2,11 +2,11 @@
 
 ## Principle: agent fabric, not distributed tensor memory
 
-Nexus Local Agent treats heterogeneous machines as independently useful resources. It does not assume that RAM or accelerators across machines should behave like one GPU.
+Nexus treats heterogeneous machines as independently useful resources. The normal path sends **intent, model tokens, tool calls, screenshots, diffs, evidence and task state** between nodes. It does not move model layers across the network on every decode step.
 
-The control plane routes **intent, tokens, commands, diffs and evidence**. Tensor/model parallelism is an optional experimental backend, not the system architecture.
+Tensor/model parallelism may exist later as an experimental backend, but it is not the agent architecture.
 
-## Planes
+## Three planes
 
 ### Control plane
 
@@ -14,96 +14,163 @@ Primary target: MacBook Air M4 16GB.
 
 Responsibilities:
 
-- durable task/event state
-- live node registry
-- heartbeat lease expiry
-- task planning and verification orchestration
-- inference/execution routing
+- live node registry and heartbeat TTL
+- durable SQLite task/event state
+- dependency-aware task DAG execution
+- bounded parallel ready-step batches
+- planner/verifier orchestration
+- automatic repair and re-plan attempts
+- independent inference/execution routing
+- control-scoped tools: web search/fetch, Deep Research, memory, node status, delegation
 - OpenAI-compatible gateway
-- future DAG leases, retries and failover
 
-The control plane runs no required LLM.
+The control plane requires no local LLM.
 
 ### Inference plane
 
 Primary targets:
 
-- MBP M5 Max 128GB: heavy reasoning/review/long-context model.
-- Z13 64GB Linux: coding/tool model.
+- MBP M5 Max 128GB: heavy multimodal reasoning, planning, review, long context.
+- Z13 Linux 64GB: coding/tool model and fallback inference.
 
-Inference nodes advertise one or more model endpoints and model-level capabilities.
+Inference nodes advertise OpenAI-compatible model endpoints and model-level capabilities. The model endpoint must be reachable from the control plane.
 
 ### Execution plane
 
 Primary targets:
 
-- Z13: Linux shell, Git, containers, builds, tests and browser automation.
-- Hong Kong M4 Mac mini: remote macOS CI, browser/network checks, long-running jobs and standby infrastructure.
+- Z13: Linux shell, filesystem, Git, code, builds/tests, browser and physical computer-use.
+- Hong Kong M4 Mac mini: remote macOS/browser/CI, HK network presence, long jobs and future standby control.
 
 Execution nodes may advertise **zero models**.
 
+## Hard invariants
+
+1. **Do not collapse inference and execution.** A model may run on M5 while its tools execute on Z13 or HK mini.
+2. **Node capabilities describe resources; model capabilities describe intelligence.** Keep them separate.
+3. **Tool schemas are first-class protocol.** MCP is an optional adapter, not the internal abstraction.
+4. **Control-scoped tools never need to round-trip through a node daemon.** Node-scoped tools always execute through a capability-checked node daemon.
+5. **Screenshots are model inputs.** `ToolResult.images` are appended to the next model turn as high-detail data-URI image inputs.
+6. **Completion is evidence-based.** Tool execution results feed the agent transcript and the independent verifier.
+7. **Human approval is not part of the normal tool-call loop.** Transport authentication remains mandatory.
+
 ## Dynamic registry
 
-Every node-daemon registers a `NodeSpec` and refreshes a heartbeat.
+Every node-daemon registers a `NodeSpec` and refreshes heartbeat metrics including free memory, load, uptime and active jobs.
 
 ```text
-REGISTER --> registry entry
-HEARTBEAT every 10s
-        |
-        +-- lastSeen <= TTL --> online / routable
-        +-- lastSeen >  TTL --> stale / excluded
+REGISTER -> registry entry
+HEARTBEAT
+    |
+    +-- lastSeen <= TTL -> online / routable
+    +-- lastSeen > TTL  -> stale / excluded
 ```
 
-The default TTL is 45 seconds. Bootstrap entries are only a recovery/static-lab escape hatch; normal operation is self-registration.
+Bootstrap entries remain a recovery/static-lab escape hatch.
 
 ## Capability model
 
-Node capabilities describe tools/resources:
+Node capabilities currently include:
 
 - `inference`
 - `exec`, `fs`, `git`
-- `containers`, `browser`, `ci`
-- `network-probe`, `long-running`
+- `containers`, `browser`, `computer`, `code`, `documents`
+- `ci`, `network-probe`, `long-running`
 - `control`, `control-standby`
 
-Model capabilities independently describe intelligence:
+Model capabilities independently include:
 
 - `reasoning`, `coding`, `tool-use`
 - `vision`, `long-context`, `fast-draft`, `review`
 
-There is no `brain` or `worker` role in the routing contract.
+There is no `brain` / `worker` role in the routing contract.
 
-## Split routing
+## Split routing and tool loop
 
-For a step, the router separately selects:
+For each step:
 
-1. an inference node/model based on model capabilities, quality, speed, reliability and reachability;
-2. an execution node based on required node capabilities, platform, region, execution class, reliability and reachability.
+```text
+PlanStep
+  |-- inference route -> node + model
+  `-- execution route -> node
+             |
+             v
+      model tool call
+             |
+      +------+----------------+
+      |                       |
+control-scoped tool      node-scoped tool
+(Air)                    (Z13/HK/...)
+      |                       |
+      +----------+------------+
+                 v
+           ToolResult
+                 |
+        text + optional image
+                 |
+                 v
+            next model turn
+```
 
-This allows a large M5 model to operate a Z13 shell or a Hong Kong Mac mini without pretending those machines share accelerator memory.
+This is how a multimodal M5 model can visually operate a browser or physical desktop hosted elsewhere.
 
-## Region/platform constraints
+## Task lifecycle
 
-`PlanStep.execution` can require:
+```text
+queued
+  -> planning
+  -> running (DAG-ready batches may run concurrently)
+  -> verifying
+       |-- PASS -> succeeded
+       `-- FAIL -> repairing -> re-plan -> running
+                              ... up to maxAttempts
+```
 
-- node capabilities
-- preferred capabilities
-- platform
-- region
-- avoided nodes
+`agent.delegate` creates a normal child task with parent/depth metadata and runs it through the same planning/execution/verification lifecycle. Delegation depth is bounded to prevent unbounded recursive task trees.
 
-A planner can therefore emit a clean macOS/Hong-Kong verification step while using a model hosted elsewhere.
+## Deep Research
 
-## Security boundary
+Deep Research is a control-plane workflow, not a single external MCP tool:
 
-Unattended execution and unauthenticated remote execution are different concerns. Node-daemon execution does not require a human approval prompt, but control traffic requires the shared bearer token and should traverse trusted LAN/TB4 or WireGuard/Tailscale rather than public port forwarding.
+1. local model decomposes the question into diverse queries;
+2. configured search providers run in parallel per query;
+3. URLs are normalized/deduplicated;
+4. a second round can target evidence gaps;
+5. top sources are fetched and readable text extracted;
+6. local model synthesizes only from supplied evidence with `[S#]` citations;
+7. citation IDs are audited; one citation-repair pass is attempted; invalid/no citation output fails.
 
-## Next implementation layer
+Search backends: SearXNG, Brave Search, Tavily, Exa.
 
-1. Durable DAG scheduler with dependency-aware parallelism.
-2. Work leases and idempotent retries.
-3. Verifier-driven repair loop.
-4. Worktree/repository distribution across executor nodes.
-5. EWMA latency/throughput/load feedback into routing.
-6. Event streaming and observability UI.
-7. Replicated state and HK standby control-plane failover.
+## Browser versus computer-use
+
+Prefer deterministic browser/DOM operations first. The Playwright node backend maintains explicit browser sessions and supports navigate/click/type/extract/screenshot. Use physical computer-use when the state is outside a browser DOM or deterministic browser operations are insufficient.
+
+Physical computer-use backends are deliberately small platform adapters. On macOS they use `screencapture`, Accessibility/System Events, and CoreGraphics/Swift for pointer/scroll events. Linux currently uses `grim` or `gnome-screenshot` plus `xdotool`/`wtype` where available.
+
+## Durable state
+
+- task/events: SQLite WAL in the control-plane state directory;
+- memory: separate SQLite WAL store with FTS5 if available;
+- model/tool transcripts: currently persisted indirectly through task events/evidence rather than a dedicated transcript table.
+
+## Security and operations boundary
+
+Unattended execution and unauthenticated remote execution are different concerns. Nexus intentionally has no human confirmation gate in the tool loop, but node/control RPC requires the shared bearer token and should travel over trusted LAN/TB4 or WireGuard/Tailscale. Do not public-port-forward the execution API.
+
+`code.run` is currently host execution, not a security sandbox. Container-backed isolation can be added as a policy/backend without changing the tool contract.
+
+## Production backlog
+
+The current branch establishes a functional tool fabric, not a finished production scheduler. Highest-value next work:
+
+1. persisted task/step leases, idempotency keys, cancellation and crash-safe resume;
+2. repository/worktree distribution and conflict-safe parallel write ownership;
+3. EWMA latency, tokens/sec, failure rate and active-load feedback in routing;
+4. SSE/WebSocket event stream and operator UI;
+5. control-plane state replication and HK standby leader election/failover;
+6. optional container/microVM execution backend for `code.run` and risky build jobs;
+7. layout-aware PDF/Office parsers plus rendered-page vision fallback;
+8. browser adapter interface for optional Stagehand/other agent-browser backends;
+9. screenshot/action trace storage and computer-use replay/debugging;
+10. generated and committed dependency lockfile plus release/versioning pipeline.
