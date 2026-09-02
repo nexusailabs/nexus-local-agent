@@ -49,7 +49,7 @@ function parseToolCalls(value: unknown): ModelToolCall[] | undefined {
     const fn = call.function && typeof call.function === 'object' ? call.function as Record<string,unknown> : {};
     const rawArguments = String(fn.arguments ?? '{}');
     let args: Record<string,unknown> = {};
-    try { const parsed: unknown = JSON.parse(rawArguments); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string,unknown>; } catch {}
+    try { const parsed: unknown = JSON.parse(rawArguments); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) args = parsed as Record<string,unknown>; } catch { /* Keep the raw arguments when a provider returns malformed JSON. */ }
     calls.push({ id:String(call.id??nanoid()), name:String(fn.name??''), arguments:args, rawArguments });
   }
   return calls.length ? calls : undefined;

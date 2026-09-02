@@ -1,0 +1,25 @@
+#!/bin/bash
+set -eu
+
+readonly STATE_FILE="/var/run/com.nexus.power-policy.state"
+POWER_LINE="$(/usr/bin/pmset -g batt | /usr/bin/head -n 1)"
+readonly POWER_LINE
+
+if [[ "${POWER_LINE}" == *"AC Power"* ]]; then
+  target=1
+  label="ac-clamshell"
+else
+  target=0
+  label="battery-sleep"
+fi
+
+previous=""
+if [[ -r "${STATE_FILE}" ]]; then
+  previous="$(/bin/cat "${STATE_FILE}" 2>/dev/null || true)"
+fi
+
+if [[ "${previous}" != "${target}" ]]; then
+  /usr/bin/pmset -a disablesleep "${target}"
+  /usr/bin/printf '%s\n' "${target}" > "${STATE_FILE}"
+  /usr/bin/logger -t com.nexus.power-policy "mode=${label} disablesleep=${target}"
+fi

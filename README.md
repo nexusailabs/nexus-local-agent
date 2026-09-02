@@ -81,6 +81,9 @@ pnpm exec playwright install chromium
 ### MacBook Air — primary control plane
 
 No model server is required.
+The deployed `run-control.sh` verifies the Air's tailnet address before opening
+the state database, preventing an old MBP checkout from creating a split-brain
+control plane.
 
 ```bash
 export NEXUS_SHARED_TOKEN='...'
@@ -98,7 +101,21 @@ export NEXUS_SEARXNG_URL='http://...'
 
 ### M5 Max — inference-only node
 
-Run mlx-serve/oMLX or another OpenAI-compatible local server first. The model `baseUrl` must be reachable from the Air.
+Run mlx-serve/another OpenAI-compatible server first. `baseUrl` in
+`NEXUS_MODELS_JSON` must be reachable from the Air control plane.
+
+The quality-first MBP profile uses mlx-serve 26.8.11 with
+`ddalcu/Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit`. Routed experts stay at
+4-bit group 64, while attention, GDN, hyper-connections, indexer, shared
+experts, LM head and MTP are 8-bit group 64. The publisher's exact 32 GB PLE
+table is mmaped, targeting about 75 GB resident instead of loading that table
+onto the GPU. Vision stays enabled. The serving ceiling is 131,072 context and
+32,768 output tokens; KV and decode-attention quantization are disabled.
+Native MTP accelerates decoding without replacing the target logits.
+`ops/macos/run-mlx-serve.sh` reads a dedicated model API key from Keychain,
+separate from the control-plane token. The key is injected only into the
+server process. The runner refuses a custom `iogpu.wired_limit_mb`, an
+incomplete download, or an incompatible model layout.
 
 ```bash
 export NEXUS_CONTROL_URL='http://mba-m4-control.local:7788'
@@ -109,15 +126,15 @@ export NEXUS_NODE_TAGS='apple-silicon,metal,mlx'
 export NEXUS_EXECUTION_CLASS=10
 export NEXUS_MODELS_JSON='[
   {
-    "id":"Qwen3.8-Flash-Next",
-    "provider":"omlx",
+    "id":"Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit",
+    "provider":"mlx-serve",
     "baseUrl":"http://mbp-m5-max.local:8080/v1",
-    "contextWindow":65536,
-    "maxOutputTokens":16384,
+    "contextWindow":131072,
+    "maxOutputTokens":32768,
     "capabilities":["reasoning","coding","tool-use","long-context","review","vision"],
     "costClass":70,
-    "speedClass":72,
-    "qualityClass":96
+    "speedClass":94,
+    "qualityClass":98
   }
 ]'
 pnpm dev:node

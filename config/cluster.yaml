@@ -1,5 +1,5 @@
 cluster:
-  controlNodeId: mbp-m5-max-control
+  controlNodeId: mba-m4-control
   heartbeatTtlMs: 45000
   # Normal operation is dynamic: node-daemons self-register and heartbeat.
   # Bootstrap nodes exist only for recovery/static lab scenarios.

@@ -36,7 +36,7 @@ export class FabricRuntime {
     return this.runTask(task, execute);
   }
 
-  async runTask(task: AgentTaskType, execute: boolean, _delegateDepth = Number(task.metadata.delegateDepth ?? 0)): Promise<RunResult> {
+  async runTask(task: AgentTaskType, execute: boolean): Promise<RunResult> {
     this.store.put(task);
     let repairContext: string | undefined;
     let lastPlan: AgentPlan | undefined;
@@ -130,7 +130,7 @@ export class FabricRuntime {
           const parsedKind = TaskKind.safeParse(a.kind); const constraints = [a.platform ? `platform=${text(a.platform)}` : '', a.region ? `region=${text(a.region)}` : ''].filter(Boolean).join(', ');
           const objective = `${text(a.objective)}${constraints ? `\nRequired execution constraints: ${constraints}` : ''}`;
           const child = AgentTask.parse({ id: nanoid(), objective, repoPath: text(a.repoPath) || context?.task.repoPath, kind: parsedKind.success ? parsedKind.data : 'general', status: 'queued', maxAttempts: Math.min(4, context?.task.maxAttempts ?? 4), metadata: { parentTaskId: context?.task.id ?? null, delegateDepth: depth + 1 } });
-          const data = await this.runTask(child, true, depth + 1);
+          const data = await this.runTask(child, true);
           return this.ok(call, data, JSON.stringify({ taskId: child.id, attempts: data.attempts, verification: data.verification, stepResults: data.stepResults }).slice(-100_000));
         }
         default: return this.fail(call, `unimplemented control tool: ${call.name}`);

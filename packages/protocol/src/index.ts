@@ -18,7 +18,7 @@ export type ModelCapability = z.infer<typeof ModelCapability>;
 
 export const ModelSpec = z.object({
   id: z.string().min(1),
-  provider: z.enum(['openai-compatible', 'omlx', 'llama.cpp']),
+  provider: z.enum(['openai-compatible', 'omlx', 'mlx-serve', 'llama.cpp']),
   baseUrl: z.string().url(),
   apiKey: z.string().optional(),
   contextWindow: z.number().int().positive(),
