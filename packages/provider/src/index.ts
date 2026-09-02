@@ -4,17 +4,21 @@ import type { ModelSpec } from '@nexus/protocol';
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export type ChatContent = string | Array<
   | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' } }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' | 'auto' | undefined } }
 >;
 export type ModelToolCall = { id: string; name: string; arguments: Record<string, unknown>; rawArguments: string };
 export type ChatMessage =
   | { role: 'system' | 'user'; content: ChatContent }
-  | { role: 'assistant'; content: string | null; toolCalls?: ModelToolCall[] }
+  | { role: 'assistant'; content: string | null; toolCalls?: ModelToolCall[] | undefined }
   | { role: 'tool'; content: string; toolCallId: string };
 export type ModelToolDefinition = { name: string; description: string; parameters: Record<string, unknown> };
 export type ChatInput = {
-  system?: string; messages: ChatMessage[]; temperature?: number; maxTokens?: number;
-  reasoningEffort?: ReasoningEffort; tools?: ModelToolDefinition[];
+  system?: string | undefined;
+  messages: ChatMessage[];
+  temperature?: number | undefined;
+  maxTokens?: number | undefined;
+  reasoningEffort?: ReasoningEffort | undefined;
+  tools?: ModelToolDefinition[] | undefined;
 };
 export type ModelTurn = { content: string; toolCalls: ModelToolCall[] };
 

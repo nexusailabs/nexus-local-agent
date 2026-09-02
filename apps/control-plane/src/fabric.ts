@@ -8,7 +8,7 @@ import { getTool } from '@nexus/tools';
 import type { TaskStore } from './store.js';
 
 export type NodeSource = () => NodeSpec[];
-export type RunResult = { task: AgentTaskType; plan: AgentPlan; executed: boolean; attempts: number; stepResults?: unknown[]; verification?: { pass: boolean; findings: string } };
+export type RunResult = { task: AgentTaskType; plan: AgentPlan; executed: boolean; attempts: number; stepResults?: unknown[] | undefined; verification?: { pass: boolean; findings: string } | undefined };
 const memoryKinds = new Set<MemoryKind>(['semantic','episodic','procedural','workspace','artifact']);
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown, fallback='') => typeof value === 'string' ? value : fallback;
@@ -36,7 +36,7 @@ export class FabricRuntime {
     return this.runTask(task, execute);
   }
 
-  async runTask(task: AgentTaskType, execute: boolean, delegateDepth = Number(task.metadata.delegateDepth ?? 0)): Promise<RunResult> {
+  async runTask(task: AgentTaskType, execute: boolean, _delegateDepth = Number(task.metadata.delegateDepth ?? 0)): Promise<RunResult> {
     this.store.put(task);
     let repairContext: string | undefined;
     let lastPlan: AgentPlan | undefined;
