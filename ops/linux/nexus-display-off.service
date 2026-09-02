@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep the Z13 built-in display backlight off
+After=display-manager.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 10
+ExecStart=/usr/local/sbin/nexus-panel-off
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target

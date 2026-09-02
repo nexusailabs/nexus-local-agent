@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+for brightness in /sys/class/backlight/*/brightness; do
+  test -e "$brightness" && echo 0 >"$brightness"
+done
+
+connector_id=$(
+  /usr/bin/modetest -M amdgpu -c 2>/dev/null |
+    /usr/bin/awk '$3 == "connected" && $4 == "eDP-1" { print $1; exit }'
+)
+test -n "$connector_id"
+/usr/bin/modetest -M amdgpu -w "$connector_id:DPMS:3" >/dev/null
