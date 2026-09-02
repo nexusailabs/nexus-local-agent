@@ -47,6 +47,20 @@ export class NodeRegistry {
       .sort((a, b) => a.node.id.localeCompare(b.node.id));
   }
 
+  publicList(includeStale = true): RuntimeNode[] {
+    return this.list(includeStale).map((entry) => ({
+      ...entry,
+      node: {
+        ...entry.node,
+        models: entry.node.models.map((model) => {
+          const publicModel = { ...model };
+          delete publicModel.apiKey;
+          return publicModel;
+        })
+      }
+    }));
+  }
+
   live(): NodeSpec[] {
     return this.list(false).map((entry) => entry.node);
   }

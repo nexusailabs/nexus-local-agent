@@ -1,0 +1,19 @@
+providers:
+  nexus-local:
+    baseUrl: http://127.0.0.1:7788/v1
+    api: openai-completions
+    apiKey: "!/bin/zsh -lc '/usr/bin/security find-generic-password -w -s ai.nexus.local-agent -a kei 2>/dev/null || /usr/bin/security find-generic-password -w -s ai.nexus.local-agent -a kei /Library/Keychains/System.keychain'"
+    authHeader: true
+    disableStrictTools: true
+    models:
+      - id: nexus-auto
+        name: Nexus MBP Qwen3.8 Flash Next
+        reasoning: true
+        input: [text, image]
+        contextWindow: 131072
+        maxTokens: 32768
+        cost:
+          input: 0
+          output: 0
+          cacheRead: 0
+          cacheWrite: 0

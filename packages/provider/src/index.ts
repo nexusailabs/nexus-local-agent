@@ -20,7 +20,7 @@ export type ChatInput = {
   reasoningEffort?: ReasoningEffort | undefined;
   tools?: ModelToolDefinition[] | undefined;
 };
-export type ModelTurn = { content: string; toolCalls: ModelToolCall[] };
+export type ModelTurn = { content: string; reasoningContent?: string | undefined; toolCalls: ModelToolCall[] };
 
 function safeArguments(value: string): Record<string, unknown> {
   try {
@@ -67,7 +67,9 @@ export class LocalModelClient {
       const rawArguments = call.function.arguments ?? '{}';
       return [{ id: call.id, name: call.function.name, arguments: safeArguments(rawArguments), rawArguments }];
     });
-    return { content: message?.content ?? '', toolCalls };
+    const rawMessage=message as (typeof message&{reasoning_content?:unknown})|undefined;
+    const reasoningContent=typeof rawMessage?.reasoning_content==='string'?rawMessage.reasoning_content:undefined;
+    return { content: message?.content ?? '', reasoningContent, toolCalls };
   }
 
   async complete(input: ChatInput): Promise<string> {

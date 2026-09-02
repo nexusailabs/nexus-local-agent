@@ -29,7 +29,7 @@ app.addHook('onRequest', async (req, reply) => { if (req.url === '/health') retu
 app.get('/health', async () => { const all = registry.list(); return { ok:true, service:'nexus-local-agent-control-plane', controlNodeId:config.cluster.controlNodeId, nodes:{ total:all.length, online:all.filter((entry)=>entry.status==='online').length, stale:all.filter((entry)=>entry.status==='stale').length }, searchProviders:fabric.search.providers.map((provider)=>provider.name) }; });
 app.post('/v1/nodes/register', async (req, reply) => reply.code(201).send(registry.register(NodeAdvertisement.parse(req.body))));
 app.post('/v1/nodes/:id/heartbeat', async (req) => { const id=(req.params as{id:string}).id,heartbeat=NodeHeartbeat.parse({...(req.body as object),nodeId:id});try{return registry.heartbeat(heartbeat);}catch(error){throw app.httpErrors.notFound(String(error));} });
-app.get('/v1/nodes', async (req) => registry.list((req.query as{includeStale?:string}).includeStale !== 'false'));
+app.get('/v1/nodes', async (req) => registry.publicList((req.query as{includeStale?:string}).includeStale !== 'false'));
 app.get('/v1/routes/:kind', async (req) => { const kind=TaskKind.parse((req.params as{kind:string}).kind),query=req.query as{mode?:'inference'|'execution'};return query.mode==='execution'?routeExecution(nodes(),kind):routeInference(nodes(),kind); });
 app.get('/v1/tools', async () => builtinTools);
 app.post('/v1/tools/control', async (req) => fabric.executeControlTool(ToolCall.parse(req.body)));
@@ -87,13 +87,30 @@ function normalizeMessages(raw: unknown[]): ChatMessage[] {
   }
   return output;
 }
-app.post('/v1/chat/completions', async (req) => {
-  const body=req.body as{messages?:unknown[];max_tokens?:number;temperature?:number;reasoning_effort?:'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max';tools?:Array<{type:'function';function:ModelToolDefinition}>};
+app.post('/v1/chat/completions', async (req,reply) => {
+  const body=req.body as{messages?:unknown[];max_tokens?:number;temperature?:number;reasoning_effort?:'none'|'minimal'|'low'|'medium'|'high'|'xhigh'|'max';stream?:boolean;tools?:Array<{type:'function';function:ModelToolDefinition}>};
   if(!body.messages?.length)throw app.httpErrors.badRequest('messages required');
   const live=nodes(),route=routeInference(live,'general'),node=live.find((candidate)=>candidate.id===route.nodeId),model=node?.models.find((candidate)=>candidate.id===route.modelId);
   if(!node||!model)throw app.httpErrors.serviceUnavailable('inference route disappeared');
-  const turn=await new LocalModelClient(model).turn({ messages:normalizeMessages(body.messages), maxTokens:body.max_tokens, temperature:body.temperature, reasoningEffort:body.reasoning_effort, tools:body.tools?.filter((tool)=>tool.type==='function').map((tool)=>tool.function) });
-  return{id:`chatcmpl_${nanoid()}`,object:'chat.completion',created:Math.floor(Date.now()/1000),model:'nexus-auto',nexus_route:{nodeId:node.id,modelId:model.id},choices:[{index:0,message:{role:'assistant',content:turn.content||null,...(turn.toolCalls.length?{tool_calls:turn.toolCalls.map((call)=>({id:call.id,type:'function',function:{name:call.name,arguments:call.rawArguments}}))}:{})},finish_reason:turn.toolCalls.length?'tool_calls':'stop'}]};
+  const messages=normalizeMessages(body.messages);
+  req.log.info({roles:messages.map((message)=>message.role),assistantToolCalls:messages.filter((message)=>message.role==='assistant').reduce((count,message)=>count+(message.toolCalls?.length??0),0),toolResults:messages.filter((message)=>message.role==='tool').length},'local model turn requested');
+  const turn=await new LocalModelClient(model).turn({ messages, maxTokens:body.max_tokens, temperature:body.temperature, reasoningEffort:body.reasoning_effort, tools:body.tools?.filter((tool)=>tool.type==='function').map((tool)=>tool.function) });
+  req.log.info({contentLength:turn.content.length,reasoningLength:turn.reasoningContent?.length??0,toolCalls:turn.toolCalls.length,toolNames:turn.toolCalls.map((call)=>call.name),toolArgumentLengths:turn.toolCalls.map((call)=>call.rawArguments.length)},'local model turn completed');
+  const content=turn.content||(turn.toolCalls.length?null:turn.reasoningContent)||null;
+  const id=`chatcmpl_${nanoid()}`,created=Math.floor(Date.now()/1000),finishReason=turn.toolCalls.length?'tool_calls':'stop';
+  if(body.stream){
+    reply.hijack();
+    reply.raw.writeHead(200,{'content-type':'text/event-stream; charset=utf-8','cache-control':'no-cache','connection':'keep-alive'});
+    const chunk=(delta:Record<string,unknown>,finish_reason:string|null=null)=>reply.raw.write(`data: ${JSON.stringify({id,object:'chat.completion.chunk',created,model:'nexus-auto',choices:[{index:0,delta,finish_reason}]})}\n\n`);
+    chunk({role:'assistant'});
+    if(turn.reasoningContent)chunk({reasoning_content:turn.reasoningContent});
+    if(content)chunk({content});
+    if(turn.toolCalls.length)chunk({tool_calls:turn.toolCalls.map((call,index)=>({index,id:call.id,type:'function',function:{name:call.name,arguments:call.rawArguments}}))});
+    chunk({},finishReason);
+    reply.raw.end('data: [DONE]\n\n');
+    return;
+  }
+  return{id,object:'chat.completion',created,model:'nexus-auto',nexus_route:{nodeId:node.id,modelId:model.id},choices:[{index:0,message:{role:'assistant',content,...(turn.reasoningContent?{reasoning_content:turn.reasoningContent}:{}),...(turn.toolCalls.length?{tool_calls:turn.toolCalls.map((call)=>({id:call.id,type:'function',function:{name:call.name,arguments:call.rawArguments}}))}:{})},finish_reason:finishReason}]};
 });
 
 const bind=process.env.NEXUS_BIND??'0.0.0.0',port=Number(process.env.NEXUS_CONTROL_PORT??7788);await app.listen({host:bind,port});

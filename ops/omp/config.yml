@@ -1,0 +1,12 @@
+browser:
+  relay: true
+
+modelRoles:
+  default: nexus-local/nexus-auto
+  smol: nexus-local/nexus-auto
+  slow: nexus-local/nexus-auto
+  plan: nexus-local/nexus-auto
+  task: nexus-local/nexus-auto
+  advisor: nexus-local/nexus-auto
+
+defaultThinkingLevel: high
