@@ -1,1 +1,1 @@
-{"name":"@nexus/research","version":"0.1.0","private":true,"type":"module","dependencies":{"@nexus/protocol":"workspace:*","@nexus/provider":"workspace:*","@nexus/router":"workspace:*"}}
+{"name":"@nexus/research","version":"0.1.0","private":true,"type":"module","main":"dist/index.js","types":"dist/index.d.ts","dependencies":{"@nexus/protocol":"workspace:*","@nexus/provider":"workspace:*","@nexus/router":"workspace:*"}}
