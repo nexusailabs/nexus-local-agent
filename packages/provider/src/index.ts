@@ -6,6 +6,7 @@ export type ChatInput = {
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   temperature?: number;
   maxTokens?: number;
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 };
 
 export class LocalModelClient {
@@ -23,7 +24,8 @@ export class LocalModelClient {
       model: this.model.id,
       messages,
       temperature: input.temperature ?? 0.2,
-      max_tokens: input.maxTokens ?? this.model.maxOutputTokens
+      max_tokens: input.maxTokens ?? this.model.maxOutputTokens,
+      ...(input.reasoningEffort ? { reasoning_effort: input.reasoningEffort } : {})
     });
     return res.choices[0]?.message?.content ?? '';
   }

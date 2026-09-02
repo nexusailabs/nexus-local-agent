@@ -88,7 +88,8 @@ export class StepExecutor {
             `Execution transcript:\n${transcript.slice(-8).join('\n\n') || '(empty)'}`
           ].join('\n')
         }],
-        maxTokens: 4096
+        maxTokens: 4096,
+        reasoningEffort: 'none'
       });
 
       const action: AgentAction = AgentAction.parse(extractJson(text));

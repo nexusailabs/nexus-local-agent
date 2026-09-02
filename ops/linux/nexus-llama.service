@@ -1,0 +1,19 @@
+[Unit]
+Description=Nexus Z13 ROCm llama.cpp server
+Wants=systemd-udev-settle.service
+After=network-online.target systemd-udev-settle.service
+ConditionPathExists=/var/lib/nexus-models/current.gguf
+
+[Service]
+User=kei
+Group=kei
+SupplementaryGroups=render video
+Environment=LD_LIBRARY_PATH=/opt/llama.cpp-master/lib:/opt/rocm/lib
+ExecStartPre=/bin/bash -c 'for _ in $(seq 1 120); do /opt/rocm/bin/rocminfo 2>/dev/null | /usr/bin/grep -q gfx1151 && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/local/bin/llama-server -m /var/lib/nexus-models/current.gguf -c 32768 -ngl 99 -fa on --host 0.0.0.0 --port 8081
+Restart=always
+RestartSec=5
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target

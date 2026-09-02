@@ -30,12 +30,16 @@ export class Orchestrator {
         'You are the planning brain of Nexus Local Agent.',
         'Return ONLY valid JSON matching:',
         '{summary:string,steps:[{id,title,description,kind,acceptance:string[],dependsOn:string[],execution:{requiredCapabilities:string[],preferredCapabilities:string[],platform?:string,region?:string,avoidNodes:string[]}}],globalAcceptance:string[]}.',
+        'Allowed kind values: plan, code, shell, build, test, review, research, general.',
+        'Allowed capability values: control, control-standby, inference, exec, fs, git, containers, browser, ci, network-probe, long-running.',
+        'Allowed platform values: darwin-arm64, linux-x64. Omit optional platform and region when not required; never emit null.',
         'Inference and execution are separate resources. A step may execute on a node that runs no model.',
         'Use execution constraints only when they are materially required, e.g. macOS clean CI or region=hk.',
-        'Prefer executable, independently verifiable steps.'
+        'Prefer the smallest number of executable, independently verifiable steps. Use one step for a simple objective.'
       ].join('\n'),
       messages: [{ role: 'user', content: `Objective: ${task.objective}\nRepository: ${task.repoPath ?? 'none'}` }],
-      maxTokens: 8192
+      maxTokens: 8192,
+      reasoningEffort: 'none'
     });
     return AgentPlan.parse(extractJson(text));
   }
@@ -47,7 +51,8 @@ export class Orchestrator {
     const result = await client.complete({
       system: 'You are the independent verifier. Judge correctness against objective and acceptance criteria, not style. Start with PASS or FAIL, then concise findings.',
       messages: [{ role: 'user', content: `Objective: ${task.objective}\nPlan: ${JSON.stringify(plan)}\nEvidence:\n${evidence}` }],
-      maxTokens: 8192
+      maxTokens: 8192,
+      reasoningEffort: 'none'
     });
     return { pass: /^\s*PASS\b/i.test(result), findings: result };
   }

@@ -124,6 +124,7 @@ app.post('/v1/chat/completions', async (req) => {
     messages?: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
     max_tokens?: number;
     temperature?: number;
+    reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   };
   if (!body.messages?.length) throw app.httpErrors.badRequest('messages required');
 
@@ -137,9 +138,11 @@ app.post('/v1/chat/completions', async (req) => {
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
     maxTokens?: number;
     temperature?: number;
+    reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   } = { messages: body.messages };
   if (body.max_tokens !== undefined) chatInput.maxTokens = body.max_tokens;
   if (body.temperature !== undefined) chatInput.temperature = body.temperature;
+  if (body.reasoning_effort !== undefined) chatInput.reasoningEffort = body.reasoning_effort;
 
   const content = await new LocalModelClient(model).complete(chatInput);
   return {

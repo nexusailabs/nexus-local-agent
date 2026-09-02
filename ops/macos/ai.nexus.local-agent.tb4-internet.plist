@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.nexus.local-agent.tb4-internet</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>/Users/kei/projects/nexus-local-agent/ops/macos/run-tb4-internet-bridge.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/kei/Library/Logs/Nexus/tb4-internet.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/kei/Library/Logs/Nexus/tb4-internet.err.log</string>
+</dict>
+</plist>
