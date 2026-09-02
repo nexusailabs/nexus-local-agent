@@ -1,0 +1,1 @@
+import { describe,expect,it } from 'vitest';import { parseShortcut } from './computer.js';describe('computer shortcuts',()=>{it('parses modifiers and key',()=>expect(parseShortcut('CMD+SHIFT+L')).toEqual({modifiers:['CMD','SHIFT'],key:'L'}));});
