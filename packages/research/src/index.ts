@@ -51,6 +51,10 @@ export class SearchBroker {
   async search(query:string, limit=10):Promise<SearchResult[]> {
     if(!this.providers.length) throw new Error('No web search provider configured. Set NEXUS_SEARXNG_URL, BRAVE_SEARCH_API_KEY, TAVILY_API_KEY, or EXA_API_KEY.');
     const settled=await Promise.allSettled(this.providers.map((provider)=>provider.search(query,limit)));
+    if(settled.every((result)=>result.status==='rejected')) {
+      const reasons=settled.map((result,index)=>result.status==='rejected'?`${this.providers[index]?.name??index}: ${String(result.reason)}`:'').filter(Boolean).join('; ');
+      throw new Error(`all search providers failed for query ${JSON.stringify(query)}: ${reasons}`);
+    }
     const dedupe=new Map<string,SearchResult>();
     for(const result of settled) if(result.status==='fulfilled') for(const item of result.value){ const key=normalizeUrl(item.url); const previous=dedupe.get(key); if(!previous||item.score>previous.score) dedupe.set(key,{...item,url:key}); }
     return [...dedupe.values()].sort((a,b)=>b.score-a.score).slice(0,limit);
@@ -73,23 +77,38 @@ export async function fetchDocument(url:string,maxChars=60_000):Promise<FetchedD
 
 const extractJson=(value:string):unknown=>{const fenced=value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];const raw=fenced??value.slice(value.indexOf('{'),value.lastIndexOf('}')+1);return JSON.parse(raw);};
 export type ResearchSource={id:string;title:string;url:string;snippet:string;provider:string};
-export type ResearchReport={query:string;queries:string[];sources:ResearchSource[];report:string};
+export type CitationAudit={usedSourceIds:string[];invalidSourceIds:string[]};
+export function auditCitations(report:string,sourceCount:number):CitationAudit {
+  const used=new Set<string>(),invalid=new Set<string>();
+  for(const match of report.matchAll(/\[S(\d+)\]/g)){const index=Number(match[1]);const id=`S${index}`;if(Number.isInteger(index)&&index>=1&&index<=sourceCount)used.add(id);else invalid.add(id);}
+  return{usedSourceIds:[...used],invalidSourceIds:[...invalid]};
+}
+export type ResearchReport={query:string;queries:string[];sources:ResearchSource[];report:string;citations:CitationAudit};
 export class DeepResearchService {
   constructor(private readonly nodes:()=>NodeSpec[],private readonly search:SearchBroker){}
   private client(){const nodes=this.nodes();const route=routeInference(nodes,'research');const node=nodes.find((n)=>n.id===route.nodeId);const model=node?.models.find((m)=>m.id===route.modelId);if(!model)throw new Error('research inference route disappeared');return new LocalModelClient(model);}
   async run(query:string,maxRounds=2,maxSources=12):Promise<ResearchReport>{
     const planner=this.client(); const planText=await planner.complete({system:'Generate diverse web research queries. Return only JSON {"queries":[string,...]} with 3-6 queries.',messages:[{role:'user',content:query}],maxTokens:2048,reasoningEffort:'medium'});
-    const plan=asObject(extractJson(planText)); let queries=[query,...asArray(plan.queries).map(text).filter(Boolean)].slice(0,7); const found=new Map<string,SearchResult>();
+    const plan=asObject(extractJson(planText)); let queries=[query,...asArray(plan.queries).map(text).filter(Boolean)].slice(0,7); const executedQueries=new Set<string>(),found=new Map<string,SearchResult>();
     for(let round=0;round<Math.max(1,maxRounds);round++){
-      const batches=await Promise.all(queries.map((q)=>this.search.search(q,Math.max(4,Math.ceil(maxSources/queries.length))))); for(const item of batches.flat()) if(!found.has(item.url)) found.set(item.url,item);
+      const roundQueries=[...new Set(queries.filter(Boolean))]; if(!roundQueries.length)break; roundQueries.forEach((value)=>executedQueries.add(value));
+      const perQuery=Math.max(4,Math.ceil(maxSources/roundQueries.length)); const batches=await Promise.all(roundQueries.map((value)=>this.search.search(value,perQuery)));
+      for(const item of batches.flat()) if(!found.has(item.url)) found.set(item.url,item);
       if(round+1>=maxRounds)break; const compact=[...found.values()].slice(0,maxSources).map((s)=>`${s.title}: ${s.snippet}`).join('\n');
       const gap=await planner.complete({system:'Find material research gaps. Return only JSON {"queries":[string,...]}; use [] when evidence is sufficient.',messages:[{role:'user',content:`Question: ${query}\nEvidence summaries:\n${compact}`}],maxTokens:1536,reasoningEffort:'low'});
-      queries=asArray(asObject(extractJson(gap)).queries).map(text).filter(Boolean).slice(0,4); if(!queries.length)break;
+      queries=asArray(asObject(extractJson(gap)).queries).map(text).filter(Boolean).slice(0,4);
     }
-    const ranked=[...found.values()].sort((a,b)=>b.score-a.score).slice(0,maxSources); const docs=await Promise.allSettled(ranked.map((source)=>fetchDocument(source.url,18_000)));
+    const ranked=[...found.values()].sort((a,b)=>b.score-a.score).slice(0,maxSources); if(!ranked.length)throw new Error('Deep Research produced no sources. Check search-provider health or broaden the query.');
+    const docs=await Promise.allSettled(ranked.map((source)=>fetchDocument(source.url,18_000)));
     const sources:ResearchSource[]=ranked.map((source,index)=>({id:`S${index+1}`,title:source.title,url:source.url,snippet:source.snippet,provider:source.provider}));
     const evidence=ranked.map((source,index)=>{const doc=docs[index];const body=doc?.status==='fulfilled'?doc.value.text:source.snippet;return `[S${index+1}] ${source.title}\nURL: ${source.url}\n${body}`;}).join('\n\n');
-    const report=await planner.complete({system:'Write a rigorous research report grounded only in supplied sources. Cite factual claims inline with [S#]. Explicitly identify disagreements or missing evidence.',messages:[{role:'user',content:`Question: ${query}\n\nSources:\n${evidence}`}],maxTokens:12_000,reasoningEffort:'high'});
-    return {query,queries:[query,...ranked.slice(0,3).map((s)=>s.title)],sources,report};
+    let report=await planner.complete({system:'Write a rigorous research report grounded only in supplied sources. Cite factual claims inline with [S#]. Never invent source IDs. Explicitly identify disagreements or missing evidence.',messages:[{role:'user',content:`Question: ${query}\n\nSources:\n${evidence}`}],maxTokens:12_000,reasoningEffort:'high'});
+    let citations=auditCitations(report,sources.length);
+    if(!citations.usedSourceIds.length||citations.invalidSourceIds.length){
+      report=await planner.complete({system:`Repair citation syntax in the report. Preserve the substance, cite factual claims inline, and use ONLY source IDs S1 through S${sources.length}. Return only the corrected report.`,messages:[{role:'user',content:`Report:\n${report}\n\nAvailable source IDs: ${sources.map((source)=>source.id).join(', ')}`}],maxTokens:12_000,reasoningEffort:'low'});
+      citations=auditCitations(report,sources.length);
+    }
+    if(!citations.usedSourceIds.length||citations.invalidSourceIds.length)throw new Error(`Deep Research citation validation failed: used=${citations.usedSourceIds.join(',')} invalid=${citations.invalidSourceIds.join(',')}`);
+    return {query,queries:[...executedQueries],sources,report,citations};
   }
 }
