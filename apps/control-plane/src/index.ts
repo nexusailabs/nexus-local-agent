@@ -57,17 +57,24 @@ function parseToolCalls(value: unknown): ModelToolCall[] | undefined {
 function normalizeContent(value: unknown): ChatContent {
   if (typeof value === 'string') return value;
   if (!Array.isArray(value)) return String(value ?? '');
-  return value.flatMap((part) => {
+  const output: Array<
+    | { type:'text'; text:string }
+    | { type:'image_url'; image_url:{ url:string; detail?:'low'|'high'|'auto'|undefined } }
+  > = [];
+  for (const part of value) {
     const item = part as Record<string,unknown>;
-    if (item.type === 'text') return [{ type:'text' as const, text:String(item.text??'') }];
+    if (item.type === 'text') {
+      output.push({ type:'text', text:String(item.text??'') });
+      continue;
+    }
     if (item.type === 'image_url') {
       const raw = item.image_url;
       const image = raw && typeof raw === 'object' ? raw as Record<string,unknown> : {};
       const detail = image.detail === 'low' || image.detail === 'high' || image.detail === 'auto' ? image.detail : undefined;
-      return [{ type:'image_url' as const, image_url:{ url:String(image.url??''), ...(detail ? {detail}: {}) } }];
+      output.push({ type:'image_url', image_url:{ url:String(image.url??''), ...(detail ? { detail } : {}) } });
     }
-    return [];
-  });
+  }
+  return output;
 }
 function normalizeMessages(raw: unknown[]): ChatMessage[] {
   const output: ChatMessage[] = [];
