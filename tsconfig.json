@@ -3,6 +3,9 @@
   "references": [
     { "path": "packages/protocol" },
     { "path": "packages/provider" },
+    { "path": "packages/tools" },
+    { "path": "packages/research" },
+    { "path": "packages/memory" },
     { "path": "packages/router" },
     { "path": "packages/worktree" },
     { "path": "packages/executor" },
