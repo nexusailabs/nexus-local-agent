@@ -95,66 +95,80 @@ export class FabricRuntime {
     let lastResults: unknown[] | undefined;
     let lastVerification: { pass: boolean; findings: string } | undefined;
 
-    for (let attempt = 1; attempt <= task.maxAttempts; attempt++) {
-      this.store.setStatus(task.id, attempt === 1 ? "planning" : "repairing", {
-        attempt,
-      });
-      const plan = await this.orchestrator.plan(task, repairContext);
-      lastPlan = plan;
-      this.store.event(task.id, "plan.created", { attempt, plan });
-      if (!execute) {
-        this.store.setStatus(task.id, "running", { plannedOnly: true });
-        return { task, plan, executed: false, attempts: attempt };
-      }
+    try {
+      for (let attempt = 1; attempt <= task.maxAttempts; attempt++) {
+        this.store.setStatus(
+          task.id,
+          attempt === 1 ? "planning" : "repairing",
+          { attempt },
+        );
+        const plan = await this.orchestrator.plan(task, repairContext);
+        lastPlan = plan;
+        this.store.event(task.id, "plan.created", { attempt, plan });
+        if (!execute) {
+          this.store.setStatus(task.id, "running", { plannedOnly: true });
+          return { task, plan, executed: false, attempts: attempt };
+        }
 
-      this.store.setStatus(task.id, "running", { attempt });
-      const stepResults = await this.executePlan(task, plan);
-      lastResults = stepResults;
-      this.store.setStatus(task.id, "verifying", { attempt });
-      const verification = await this.orchestrator.verify(
-        task,
-        plan,
-        JSON.stringify(stepResults).slice(-500_000),
-      );
-      lastVerification = verification;
-      this.store.event(task.id, "verification.completed", {
-        attempt,
-        verification,
-      });
-      if (verification.pass) {
-        this.store.setStatus(task.id, "succeeded", { attempt, verification });
-        return {
+        this.store.setStatus(task.id, "running", { attempt });
+        const stepResults = await this.executePlan(task, plan);
+        lastResults = stepResults;
+        this.store.setStatus(task.id, "verifying", { attempt });
+        const verification = await this.orchestrator.verify(
           task,
           plan,
-          executed: true,
-          attempts: attempt,
-          stepResults,
-          verification,
-        };
-      }
-      if (attempt < task.maxAttempts) {
-        repairContext = [
-          verification.findings,
-          "Previous evidence:",
-          JSON.stringify(stepResults).slice(-120_000),
-        ].join("\n");
-        this.store.event(task.id, "repair.requested", {
+          JSON.stringify(stepResults).slice(-500_000),
+        );
+        lastVerification = verification;
+        this.store.event(task.id, "verification.completed", {
           attempt,
-          findings: verification.findings,
+          verification,
         });
+        if (verification.pass) {
+          this.store.setStatus(task.id, "succeeded", {
+            attempt,
+            verification,
+          });
+          return {
+            task,
+            plan,
+            executed: true,
+            attempts: attempt,
+            stepResults,
+            verification,
+          };
+        }
+        if (attempt < task.maxAttempts) {
+          repairContext = [
+            verification.findings,
+            "Previous evidence:",
+            JSON.stringify(stepResults).slice(-120_000),
+          ].join("\n");
+          this.store.event(task.id, "repair.requested", {
+            attempt,
+            findings: verification.findings,
+          });
+        }
       }
-    }
 
-    if (!lastPlan) throw new Error("task produced no plan");
-    this.store.setStatus(task.id, "failed", { verification: lastVerification });
-    return {
-      task,
-      plan: lastPlan,
-      executed: true,
-      attempts: task.maxAttempts,
-      stepResults: lastResults,
-      verification: lastVerification,
-    };
+      if (!lastPlan) throw new Error("task produced no plan");
+      this.store.setStatus(task.id, "failed", {
+        verification: lastVerification,
+      });
+      return {
+        task,
+        plan: lastPlan,
+        executed: true,
+        attempts: task.maxAttempts,
+        stepResults: lastResults,
+        verification: lastVerification,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.store.event(task.id, "task.error", { error: message });
+      this.store.setStatus(task.id, "failed", { error: message });
+      throw error;
+    }
   }
 
   private async executePlan(
@@ -210,7 +224,7 @@ export class FabricRuntime {
                     `workspace execution node disappeared: ${route.nodeId}`,
                   );
                 const client = new NodeClient(node, this.token);
-                const workspaceId = `${task.id}-${nanoid(10)}`;
+                const workspaceId = `w-${task.id}-${nanoid(10)}`;
                 const archiveUrls = this.workspaceSourceUrls.map(
                   (baseUrl) =>
                     `${baseUrl}/v1/workspace-archives/${encodeURIComponent(snapshot.id)}`,

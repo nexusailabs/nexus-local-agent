@@ -35,6 +35,7 @@ export class Orchestrator {
           "Allowed platform values: darwin-arm64, linux-x64. Omit optional platform and region when not required; never emit null.",
           "Inference and execution are separate resources. The M5 inference node plans and reviews while the dedicated Z13 worker executes ordinary tools.",
           "Do not require darwin-arm64 unless the objective truly depends on macOS, Metal, or files that exist only on that Mac.",
+          "When a repository workspace is available, Nexus transfers a portable snapshot to the selected worker. Never infer a platform constraint from the source repository path and never copy that source path into a step description or acceptance criterion.",
           "For a tiny objective, emit one focused worker step. Artificially splitting a single operation wastes latency.",
           "For a larger objective, emit two to four genuinely independent ready steps when they can run concurrently. Add dependencies only when one step needs another step output, and never duplicate a side effect.",
           "Prefer Z13 capabilities such as containers, ci, browser, and long-running when they match the work.",
@@ -45,7 +46,7 @@ export class Orchestrator {
         messages: [
           {
             role: "user",
-            content: `Objective: ${task.objective}\nRepository: ${task.repoPath ?? "none"}${repairContext ? `\nPrevious verification failure:\n${repairContext}` : ""}`,
+            content: `Objective: ${task.objective}\nRepository workspace: ${task.repoPath ? "available as a portable worker snapshot" : "none"}${repairContext ? `\nPrevious verification failure:\n${repairContext}` : ""}`,
           },
         ],
         maxTokens: 8192,
