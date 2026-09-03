@@ -1,6 +1,6 @@
 # Native tool contract
 
-Nexus tools are first-class JSON-schema function tools. MCP can be added as an adapter later, but the agent runtime does not depend on MCP.
+Nexus tools are first-class JSON-schema function tools. `apps/mcp-adapter` exposes a compact stdio view for external harnesses, but the agent runtime does not depend on MCP.
 
 ## Scope model
 

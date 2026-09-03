@@ -44,6 +44,7 @@ See [docs/TOOLS.md](docs/TOOLS.md) for the tool contract and [docs/CODEX_HANDOFF
 
 - `apps/control-plane` — live registry, task fabric, research/memory control tools, OpenAI-compatible gateway.
 - `apps/node-daemon` — node registration/heartbeat plus native execution tools.
+- `apps/mcp-adapter` — compact stdio tools for Claude, Codex, and OMP to execute on registered nodes without opening SSH sessions.
 - `packages/protocol` — wire contracts and capability schemas.
 - `packages/provider` — OpenAI-compatible multimodal/tool-calling model adapter.
 - `packages/tools` — first-class tool registry and model-facing JSON schemas.
@@ -212,6 +213,8 @@ curl -X POST http://127.0.0.1:7788/v1/research \
 ```
 
 Any OpenAI-compatible client can target `http://127.0.0.1:7788/v1` with model `nexus-auto`. Client-supplied function tools and multimodal image content are passed through to the selected local model.
+
+Claude, Codex, and OMP can also launch `ops/macos/run-nexus-mcp.sh` as a stdio MCP server. The adapter defaults to `mbp-m5-max`, discovers its current registered address, and immediately retries the configured Tailscale route if the TB4 API is unavailable. It exposes node status, argv execution, text-file access, Git inspection, code execution, and document reading while keeping Kaia as a separate context service.
 
 ## Important runtime boundaries
 

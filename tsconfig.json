@@ -11,6 +11,7 @@
     { "path": "packages/executor" },
     { "path": "packages/orchestrator" },
     { "path": "apps/node-daemon" },
+    { "path": "apps/mcp-adapter" },
     { "path": "apps/control-plane" }
   ]
 }
