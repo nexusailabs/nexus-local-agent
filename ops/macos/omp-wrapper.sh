@@ -8,6 +8,7 @@ export OMP_MCP_TIMEOUT_MS="${OMP_MCP_TIMEOUT_MS:-900000}"
 
 exec /opt/homebrew/bin/omp \
   --profile qwen-local \
+  --approval-mode yolo \
   --no-skills \
   --no-rules \
   --system-prompt /Users/kei/.omp/qwen-system.md \
