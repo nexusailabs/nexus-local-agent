@@ -105,35 +105,46 @@ export class NexusClient {
       .filter((value, index, all) => all.indexOf(value) === index);
     const failures: string[] = [];
     const timeoutMs = Math.min(3_610_000, Math.max(5_000, options.timeoutMs ?? 30_000));
+    let selectedBaseUrl: string | undefined;
     for (const baseUrl of candidates) {
       try {
-        const response = await this.fetchImpl(`${baseUrl}/v1/tool/execute`, {
-          method: "POST",
-          headers: this.headers(),
-          body: JSON.stringify({
-            id: `mcp-${crypto.randomUUID()}`,
-            name,
-            arguments: arguments_,
-          }),
-          signal: AbortSignal.timeout(timeoutMs),
+        const health = await this.fetchImpl(`${baseUrl}/health`, {
+          signal: AbortSignal.timeout(2_000),
         });
-        if (!response.ok) {
-          failures.push(`${baseUrl}: HTTP ${response.status}`);
-          continue;
-        }
-        return {
-          nodeId,
-          route: baseUrl,
-          result: ToolResult.parse(await response.json()),
-        };
+        if (!health.ok) throw new Error(`health returned HTTP ${health.status}`);
+        selectedBaseUrl = baseUrl;
+        break;
       } catch (error) {
         failures.push(
           `${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
         );
       }
     }
-    throw new Error(
-      `Nexus node ${nodeId} was unreachable on every private route (${failures.join("; ")})`,
-    );
+    if (!selectedBaseUrl) {
+      throw new Error(
+        `Nexus node ${nodeId} was unreachable on every private route (${failures.join("; ")})`,
+      );
+    }
+
+    const response = await this.fetchImpl(`${selectedBaseUrl}/v1/tool/execute`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({
+        id: `mcp-${crypto.randomUUID()}`,
+        name,
+        arguments: arguments_,
+      }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Nexus node ${nodeId} returned HTTP ${response.status} on ${selectedBaseUrl}; the operation was not retried to avoid duplicate side effects`,
+      );
+    }
+    return {
+      nodeId,
+      route: selectedBaseUrl,
+      result: ToolResult.parse(await response.json()),
+    };
   }
 }

@@ -27,7 +27,10 @@ describe("NexusClient", () => {
       const url = String(input);
       seen.push(url);
       if (url.includes("/v1/nodes")) return Response.json([node]);
-      if (url.startsWith("http://169.254.77.1")) throw new TypeError("offline");
+      if (url === "http://169.254.77.1:7790/health") throw new TypeError("offline");
+      if (url === "http://100.107.237.37:7790/health") {
+        return Response.json({ ok: true });
+      }
       expect(init?.headers).toMatchObject({ authorization: "Bearer test-token" });
       return Response.json({
         toolCallId: "test",
@@ -53,7 +56,8 @@ describe("NexusClient", () => {
     expect(result.result.text).toBe("mbp-ok");
     expect(seen).toEqual([
       "http://127.0.0.1:7788/v1/nodes?includeStale=true",
-      "http://169.254.77.1:7790/v1/tool/execute",
+      "http://169.254.77.1:7790/health",
+      "http://100.107.237.37:7790/health",
       "http://100.107.237.37:7790/v1/tool/execute",
     ]);
   });
@@ -64,5 +68,31 @@ describe("NexusClient", () => {
     await expect(
       client.executeTool("shell.exec", { argv: ["hostname"] }, { nodeId: "missing" }),
     ).rejects.toThrow("not registered");
+  });
+
+  it("does not duplicate a tool call when the selected route returns an error", async () => {
+    const seen: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      seen.push(url);
+      if (url.includes("/v1/nodes")) return Response.json([node]);
+      if (url.endsWith("/health")) return Response.json({ ok: true });
+      return new Response("lost response", { status: 502 });
+    };
+    const client = new NexusClient("test-token", {
+      fetchImpl,
+      routesJson: JSON.stringify({
+        "mbp-m5-max": ["http://100.107.237.37:7790"],
+      }),
+    });
+
+    await expect(
+      client.executeTool("shell.exec", { argv: ["hostname"] }),
+    ).rejects.toThrow("not retried to avoid duplicate side effects");
+    expect(seen).toEqual([
+      "http://127.0.0.1:7788/v1/nodes?includeStale=true",
+      "http://169.254.77.1:7790/health",
+      "http://169.254.77.1:7790/v1/tool/execute",
+    ]);
   });
 });
