@@ -138,7 +138,7 @@ export NEXUS_MODELS_JSON='[
     "id":"Qwen3.8-Flash-Next-MLX-Serve-mixed-4-8bit",
     "provider":"mlx-serve",
     "baseUrl":"http://mbp-m5-max.local:8080/v1",
-    "contextWindow":131072,
+    "contextWindow":262144,
     "maxOutputTokens":32768,
     "capabilities":["reasoning","coding","tool-use","long-context","review","vision"],
     "costClass":70,

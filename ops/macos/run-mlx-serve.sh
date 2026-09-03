@@ -52,7 +52,7 @@ exec /opt/homebrew/bin/mlx-serve \
   --serve \
   --host 0.0.0.0 \
   --port 8080 \
-  --ctx-size 131072 \
+  --ctx-size 262144 \
   --max-tokens 32768 \
   --timeout 600 \
   --prefill-chunk 2048 \

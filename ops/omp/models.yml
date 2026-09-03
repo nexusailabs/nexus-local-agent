@@ -10,7 +10,7 @@ providers:
         name: Nexus MBP Qwen3.8 Flash Next
         reasoning: true
         input: [text, image]
-        contextWindow: 131072
+        contextWindow: 262144
         maxTokens: 32768
         cost:
           input: 0
