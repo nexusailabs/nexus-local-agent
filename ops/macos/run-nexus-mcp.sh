@@ -11,7 +11,7 @@ export NEXUS_SHARED_TOKEN
 export NEXUS_CONTROL_URL="${NEXUS_CONTROL_URL:-http://127.0.0.1:7788}"
 export NEXUS_DEFAULT_NODE_ID="${NEXUS_DEFAULT_NODE_ID:-mbp-m5-max}"
 if [[ -z "${NEXUS_NODE_ROUTES_JSON:-}" ]]; then
-  NEXUS_NODE_ROUTES_JSON='{"mbp-m5-max":["http://169.254.77.1:7790","http://100.107.237.37:7790"]}'
+  NEXUS_NODE_ROUTES_JSON='{"mbp-m5-max":["http://169.254.77.1:7790","http://100.107.237.37:7790"],"z13-strix-halo":["http://169.254.77.2:7790","http://100.71.59.61:7790"]}'
 fi
 export NEXUS_NODE_ROUTES_JSON
 

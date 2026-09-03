@@ -11,6 +11,7 @@ OMP and other MCP-capable harnesses can submit one objective that is planned and
 - `nexus_run_task` invokes the planner-executor-verifier lifecycle.
 - Returned evidence names both inference and execution nodes.
 - If Z13 is unavailable, MBP remains a routable fallback executor.
+- Z13 execution prefers TB4 and automatically falls back to Tailscale without replaying a started side effect.
 - OMP's local Qwen instructions prefer `nexus_run_task` for autonomous work.
 
 ## Boundary

@@ -26,6 +26,7 @@ export NEXUS_BIND=0.0.0.0
 export NEXUS_CONTROL_PORT=7788
 export NEXUS_STATE_DIR="$NEXUS_STATE_ROOT"
 export NEXUS_CONFIG="$NEXUS_ROOT/config/cluster.yaml"
+export NEXUS_NODE_ROUTES_JSON="${NEXUS_NODE_ROUTES_JSON:-{\"mbp-m5-max\":[\"http://169.254.77.1:7790\",\"http://100.107.237.37:7790\"],\"z13-strix-halo\":[\"http://169.254.77.2:7790\",\"http://100.71.59.61:7790\"]}}"
 
 mkdir -p "$NEXUS_STATE_ROOT"
 exec /opt/homebrew/bin/pnpm --dir "$NEXUS_ROOT" dev:control

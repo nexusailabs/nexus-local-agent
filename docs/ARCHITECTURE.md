@@ -49,6 +49,7 @@ Execution nodes may advertise **zero models**.
 - MBP is the planning, inference, and independent verification node.
 - Z13 is the first-choice execution worker for platform-neutral shell, filesystem, Git, code, build, test, browser, container, CI, and long-running work.
 - MBP remains an executor only for macOS/Metal-specific work and automatic Z13 outage fallback.
+- Node execution probes an ordered private-route list before each side effect: TB4 first, Tailscale second. It never retries after an execution request starts.
 - Tiny work uses one Z13 execution step. Larger work is split only across genuinely independent DAG steps, up to the configured parallelism, so task splitting improves throughput instead of adding ceremony.
 - Interactive harnesses enter this lifecycle through `nexus_run_task`; direct chat completion alone is inference and does not imply distributed execution.
 
