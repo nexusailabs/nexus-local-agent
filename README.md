@@ -121,6 +121,12 @@ incomplete download, or an incompatible model layout.
 export NEXUS_CONTROL_URL='http://mba-m4-control.local:7788'
 export NEXUS_NODE_ID='mbp-m5-max'
 export NEXUS_NODE_BASE_URL='http://mbp-m5-max.local:7790'
+# Optional ordered routes: prefer TB4, fall back to Tailscale, and promote back
+# to TB4 automatically when the cable returns.
+export NEXUS_CONTROL_ROUTES_JSON='[
+  {"name":"tb4","controlUrl":"http://169.254.77.3:7788","nodeBaseUrl":"http://169.254.77.1:7790"},
+  {"name":"tailscale","controlUrl":"http://100.81.53.61:7788","nodeBaseUrl":"http://100.107.237.37:7790"}
+]'
 export NEXUS_NODE_CAPABILITIES='inference'
 export NEXUS_NODE_TAGS='apple-silicon,metal,mlx'
 export NEXUS_EXECUTION_CLASS=10

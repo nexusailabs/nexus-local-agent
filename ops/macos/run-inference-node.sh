@@ -19,6 +19,9 @@ source "$NEXUS_MACHINE_CONFIG"
 export NEXUS_CONTROL_URL NEXUS_NODE_BASE_URL NEXUS_MODEL_BASE_URL
 export NEXUS_MODEL_ID NEXUS_MODEL_PROVIDER NEXUS_MODEL_CONTEXT_WINDOW
 export NEXUS_MODEL_MAX_OUTPUT_TOKENS
+if [[ -n "${NEXUS_CONTROL_ROUTES_JSON:-}" ]]; then
+  export NEXUS_CONTROL_ROUTES_JSON
+fi
 
 if ! NEXUS_SHARED_TOKEN="$(/usr/bin/security find-generic-password -w -s ai.nexus.local-agent -a kei 2>/dev/null)"; then
   NEXUS_SHARED_TOKEN="$(/usr/bin/security find-generic-password -w -s ai.nexus.local-agent -a kei /Library/Keychains/System.keychain)"
