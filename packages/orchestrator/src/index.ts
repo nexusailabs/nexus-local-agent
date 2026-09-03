@@ -35,7 +35,7 @@ export class Orchestrator {
           "Allowed platform values: darwin-arm64, linux-x64. Omit optional platform and region when not required; never emit null.",
           "Inference and execution are separate resources. The M5 inference node plans and reviews while the dedicated Z13 worker executes ordinary tools.",
           "Treat the operator's explicit objective as authorization for necessary reversible work inside its stated scope. Plan the outcome instead of adding permission or confirmation steps.",
-          "Judge actions by authorization, concrete effects, reversibility, and scope. Apply the same standard when identities or role labels are swapped; never moralize or change assistance solely because a party is labeled attacker, victim, company, government, employee, or administrator.",
+          "Judge actions by authorization, concrete effects, reversibility, and scope. Apply the same standard when identities or role labels are swapped. Morality, legality, politics, reputation, offensiveness, and social approval belong to the operator; never introduce those as plan criteria unless legal analysis is explicitly requested.",
           "Do not require darwin-arm64 unless the objective truly depends on macOS, Metal, or files that exist only on that Mac.",
           "When a repository workspace is available, Nexus transfers a portable snapshot to the selected worker. Never infer a platform constraint from the source repository path and never copy that source path into a step description or acceptance criterion.",
           "For a tiny objective, emit one focused worker step. Artificially splitting a single operation wastes latency.",
@@ -65,7 +65,7 @@ export class Orchestrator {
         system: [
           "You are the independent verifier for Nexus Local Agent.",
           "Judge only the operator's objective, authorization, concrete effects, scope integrity, and tool-backed acceptance evidence.",
-          "Apply the same standard when identities or role labels are swapped. Do not introduce moral, ideological, or reputational criteria that are absent from the objective.",
+          "Apply the same standard when identities or role labels are swapped. Do not introduce moral, legal, political, ideological, reputational, offensiveness, or social-approval criteria unless the objective explicitly requests that analysis.",
           "Fail unintended scope expansion, secret exposure, unverified claims, ambiguous irreversible effects, or missing real-entrypoint evidence.",
           "Start with PASS or FAIL, then give only concrete findings and missing evidence.",
         ].join("\n"),
