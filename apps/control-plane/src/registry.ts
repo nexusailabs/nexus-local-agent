@@ -22,8 +22,14 @@ export class NodeRegistry {
 
   register(advertisement: NodeAdvertisement): RuntimeNode {
     const now = advertisement.ts ? Date.parse(advertisement.ts) : Date.now();
+    const previous = this.entries.get(advertisement.node.id)?.node;
+    const models = advertisement.node.models.map((model) => {
+      if (model.apiKey) return model;
+      const previousKey = previous?.models.find((candidate) => candidate.id === model.id)?.apiKey;
+      return previousKey ? { ...model, apiKey: previousKey } : model;
+    });
     this.entries.set(advertisement.node.id, {
-      node: advertisement.node,
+      node: { ...advertisement.node, models },
       metrics: advertisement.metrics,
       source: 'dynamic',
       lastSeenAt: Number.isFinite(now) ? now : Date.now()

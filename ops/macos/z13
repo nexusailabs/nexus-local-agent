@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+"""z13 — drive the nexus-z13 (AMD Ryzen AI MAX+ 395) node as hands and feet.
+
+Transport is the node-daemon HTTP exec endpoint, not SSH: Tailscale SSH on this
+box requires an interactive browser consent and the TB4/Wi-Fi ssh listeners are
+closed, so /v1/exec is the only non-interactive path.
+
+Address is resolved at every call (never cached on disk): Tailscale peer
+`nexus-z13` first, then the Thunderbolt and LAN routes recorded in
+~/.z13-routes if present. Token comes from the macOS Keychain.
+
+Usage:
+  z13 health                       node card: os, cpu, ram, models, metrics
+  z13 exec '<cmd> [args...]'       run argv through a login shell, stream out
+  z13 sh  '<shell snippet>'        same, via sh -c (quoting-friendly)
+  z13 py  '<python>'               python3 -c
+  z13 node '<javascript>'          node -e
+  z13 push <local> <remote>        upload a file over private HTTP
+  z13 pull <remote> [local]        download a file
+  z13 git <dir> [status|diff]      repo state
+  z13 bench                        token/s + exec RTT for this moment
+  z13 route                        print resolved endpoint and why
+"""
+import contextlib
+import hashlib
+import http.server
+import json
+import os
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+KEY_LABEL = "ai.nexus.local-agent"
+KEY_ACCOUNT = "kei"
+PORT = 7790
+PEER_HOSTNAME = "nexus-z13"
+FALLBACK_ROUTES = os.path.expanduser("~/.z13-routes")
+MODEL_PORT = 8081
+
+
+def token() -> str:
+    for extra in ([], ["/Library/Keychains/System.keychain"]):
+        r = subprocess.run(
+            ["/usr/bin/security", "find-generic-password", "-w", "-s", KEY_LABEL,
+             "-a", KEY_ACCOUNT, *extra],
+            capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    raise SystemExit(f"keychain item {KEY_LABEL}/{KEY_ACCOUNT} not found")
+
+
+def routes() -> list[tuple[str, str]]:
+    """Live candidate endpoints, best first. Never read from a saved file."""
+    out: list[tuple[str, str]] = []
+    r = subprocess.run(["tailscale", "status", "--json"], capture_output=True, text=True)
+    if r.returncode == 0:
+        try:
+            peers = json.loads(r.stdout).get("Peer", {})
+        except json.JSONDecodeError:
+            peers = {}
+        for p in peers.values():
+            if p.get("HostName") != PEER_HOSTNAME:
+                continue
+            if not p.get("Online"):
+                continue
+            for raw in p.get("TailscaleIPs", []):
+                host = f"[{raw}]" if ":" in raw else raw
+                out.append((f"http://{host}:{PORT}", "tailscale"))
+            cur = (p.get("CurAddr") or "").split(":")[0]
+            if cur:
+                out.append((f"http://{cur}:{PORT}", "lan-direct"))
+    if os.path.exists(FALLBACK_ROUTES):
+        with open(FALLBACK_ROUTES) as fh:
+            for line in fh:
+                line = line.split("#", 1)[0].strip()
+                if line:
+                    out.append((f"http://{line}:{PORT}", "static-fallback"))
+    seen, uniq = set(), []
+    for url, why in out:
+        if url not in seen:
+            seen.add(url)
+            uniq.append((url, why))
+    return uniq
+
+
+def sha256_file(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+@contextlib.contextmanager
+def serve_file(path: str):
+    """Expose exactly one file on an ephemeral MBA tailnet endpoint.
+
+    The exec endpoint has a 16 MiB body limit and argv is size-capped by the
+    kernel, so base64-through-argv is not a transfer channel.
+    """
+    served_path = os.path.abspath(path)
+    route_path = f"/{secrets.token_urlsafe(24)}/{urllib.parse.quote(os.path.basename(path))}"
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if urllib.parse.urlsplit(self.path).path != route_path:
+                self.send_error(404)
+                return
+            size = os.path.getsize(served_path)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with open(served_path, "rb") as fh:
+                shutil.copyfileobj(fh, self.wfile, 1 << 20)
+
+        def log_message(self, *_args):
+            return
+
+    class Server(http.server.ThreadingHTTPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    tailnet_ip = my_tailnet_ip()
+    with Server((tailnet_ip, 0), Handler) as srv:
+        thread = threading.Thread(target=srv.serve_forever, daemon=True)
+        thread.start()
+        try:
+            yield f"http://{tailnet_ip}:{srv.server_port}{route_path}"
+        finally:
+            srv.shutdown()
+            thread.join(timeout=5)
+
+_state: dict = {}
+
+def my_tailnet_ip() -> str:
+    r = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True)
+    ip = (r.stdout or "").split()[0] if r.returncode == 0 and r.stdout.strip() else ""
+    if not ip:
+        raise SystemExit("tailscale ip -4 failed; cannot bind transfer server")
+    return ip
+_dead: set[str] = set()
+
+
+def alive(url: str, timeout: float = 3.0) -> bool:
+    """Cheap reachability gate. A route that once answered stays trusted."""
+    if url in _dead:
+        return False
+    if _state.get("ep", ("",))[0] == url:
+        return True
+    host, _, port = url.split("//", 1)[1].rpartition(":")
+    try:
+        with socket.create_connection((host.strip("[]"), int(port)), timeout=timeout):
+            return True
+    except OSError:
+        _dead.add(url)
+        return False
+
+
+def order() -> list[tuple[str, str]]:
+    cands = [_state["ep"]] if "ep" in _state else []
+    cands += [r for r in routes() if r[0] != (cands[0][0] if cands else None)]
+    return [r for r in cands if alive(r[0])]
+
+
+def call(path: str, payload: dict, timeout: float) -> dict:
+    if "ep" not in _state:
+        _state["ep"] = probe()
+    body = json.dumps(payload).encode()
+    hdr = {"Authorization": f"Bearer {token()}", "content-type": "application/json"}
+    last = "no live route"
+    for url, why in order():
+        try:
+            req = urllib.request.Request(url + path, data=body, headers=hdr)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                _state["ep"] = (url, why)
+                return json.load(resp)
+        except urllib.error.HTTPError as e:
+            # request reached the daemon; failover would double-execute.
+            raise SystemExit(f"{url} HTTP {e.code} "
+                             f"{e.read()[:300].decode('utf8', 'replace')}")
+        except socket.timeout:
+            raise SystemExit(f"{url} ({why}) timed out mid-request; "
+                             "not retried to avoid double-executing")
+        except OSError as e:
+            _dead.add(url)
+            last = f"{url} ({why}) {type(e).__name__}: {e}"
+    raise SystemExit(f"z13 unreachable: {last}")
+
+
+def get(path: str, timeout: float = 10) -> dict:
+    if "ep" not in _state:
+        _state["ep"] = probe()
+    hdr = {"Authorization": f"Bearer {token()}"}
+    last = "no live route"
+    for url, why in order():
+        try:
+            req = urllib.request.Request(url + path, headers=hdr)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                _state["ep"] = (url, why)
+                return json.load(resp)
+        except OSError as e:
+            _dead.add(url)
+            last = f"{url} ({why}) {e}"
+    raise SystemExit(f"z13 unreachable: {last}")
+
+
+def probe() -> tuple[str, str]:
+    cands = routes()
+    if not cands:
+        raise SystemExit(
+            "no candidate route for nexus-z13: peer offline and ~/.z13-routes empty")
+    for url, why in cands:
+        try:
+            with urllib.request.urlopen(url + "/health", timeout=6) as r:
+                if r.status == 200:
+                    return (url, why)
+        except Exception:
+            continue
+    raise SystemExit("no candidate route answered /health: "
+                     + ", ".join(f"{u} ({w})" for u, w in cands))
+
+
+def execv(argv: list[str], timeout: float, cwd: str | None = None) -> dict:
+    spec = {"argv": argv, "timeoutMs": int(timeout * 1000)}
+    if cwd:
+        spec["cwd"] = cwd
+    return call("/v1/exec", spec, timeout + 15)
+
+
+def show(res: dict, quiet_ok: bool = False) -> int:
+    sys.stdout.write(res.get("stdout", ""))
+    sys.stderr.write(res.get("stderr", ""))
+    code = res.get("exitCode")
+    if code not in (0, None) and not quiet_ok:
+        sys.stderr.write(f"[exit {code}"
+                         + (f" signal {res['signal']}" if res.get("signal") else "") + "]\n")
+    return 0 if code in (0, None) else int(code)
+
+
+def rest(args: list[str]) -> list[str]:
+    if not args:
+        raise SystemExit(__doc__)
+    return args
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__)
+        return 0
+    cmd, args = argv[0], argv[1:]
+
+    if cmd == "route":
+        url, why = probe()
+        print(f"endpoint  {url}   via {why}")
+        print(f"peers     " + ", ".join(f"{u} ({w})" for u, w in routes()))
+        return 0
+
+    if cmd == "health":
+        h = get("/health")
+        n = h.get("node", {})
+        m = h.get("metrics", {})
+        print(f"node      {n.get('id')}  {n.get('platform')} {n.get('arch')}  route={h.get('registrationRoute')}")
+        print(f"caps      {', '.join(n.get('capabilities', []))}")
+        print(f"models    " + ("; ".join(
+            f"{x.get('id')} [{','.join(x.get('capabilities', []))}]" for x in n.get("models", [])) or "none"))
+        print(f"metrics   {json.dumps(m)}")
+        print(f"ts        {h.get('ts')}")
+        return 0
+
+    if cmd == "exec":
+        return show(execv(rest(args), 600))
+    if cmd == "sh":
+        return show(execv(["sh", "-c", " ".join(rest(args))], 600))
+    if cmd == "py":
+        return show(execv(["python3", "-c", " ".join(rest(args))], 600))
+    if cmd == "node":
+        return show(execv(["node", "-e", " ".join(rest(args))], 600))
+
+    if cmd == "git":
+        target = rest(args)
+        repo = target[0]
+        what = target[1] if len(target) > 1 else "status"
+        argv2 = ["git", "-C", repo, "status", "--porcelain=v1", "-b"] \
+            if what == "status" else ["git", "-C", repo, "diff"]
+        return show(execv(argv2, 120))
+
+    if cmd == "push":
+        a = rest(args)
+        local = os.path.abspath(a[0])
+        remote = a[1] if len(a) > 1 else f"/tmp/{os.path.basename(local)}"
+        if not os.path.isfile(local):
+            raise SystemExit(f"no such file: {local}")
+        digest = sha256_file(local)
+        with serve_file(local) as url:
+            script = (
+                "set -eu; dst=$1; url=$2; want=$3; "
+                "if [ -e \"$dst\" ]; then echo \"destination exists: $dst\" >&2; exit 17; fi; "
+                "mkdir -p \"$(dirname \"$dst\")\"; tmp=\"${dst}.nexus-part.$$\"; "
+                "trap 'rm -f \"$tmp\"' EXIT; "
+                "curl -fLsS -m 600 -o \"$tmp\" \"$url\"; "
+                "got=$(sha256sum \"$tmp\" | awk '{print $1}'); "
+                "test \"$got\" = \"$want\" || { echo \"CORRUPT: want $want got $got\" >&2; exit 7; }; "
+                "mv \"$tmp\" \"$dst\"; trap - EXIT; "
+                "stat -c '%s bytes  %n  sha256 ok' \"$dst\""
+            )
+            r = execv(["sh", "-c", script, "z13-push", remote, url, digest], 660)
+        return show(r)
+
+    if cmd == "pull":
+        a = rest(args)
+        remote = rest(args)[0]
+        local = a[1] if len(a) > 1 else os.path.basename(remote)
+        if os.path.exists(local):
+            raise SystemExit(f"destination exists: {local}")
+        transfer_id = secrets.token_hex(8)
+        remote_script = (
+            "set -eu; src=$1; ident=$2; "
+            "port=$(python3 -c 'import socket; s=socket.socket(); s.bind((\"\",0)); print(s.getsockname()[1]); s.close()'); "
+            "ip=$(tailscale ip -4 | head -1); log=/tmp/.z13-transfer-${ident}.log; "
+            "cd \"$(dirname \"$src\")\"; "
+            "nohup python3 -m http.server \"$port\" --bind \"$ip\" >\"$log\" 2>&1 </dev/null & pid=$!; "
+            "ready=false; for i in $(seq 1 40); do "
+            "curl -fsS -o /dev/null -r 0-0 \"http://${ip}:${port}/$(basename \"$src\")\" 2>/dev/null && { ready=true; break; }; "
+            "sleep 0.25; done; "
+            "if [ \"$ready\" != true ]; then kill \"$pid\" 2>/dev/null || true; exit 18; fi; "
+            "size=$(stat -c %s \"$src\"); sum=$(sha256sum \"$src\" | awk '{print $1}'); "
+            "printf '%s\\t%s\\t%s\\t%s\\t%s\\n' \"$pid\" \"$port\" \"$ip\" \"$size\" \"$sum\""
+        )
+        st = execv(["sh", "-c", remote_script, "z13-pull", remote, transfer_id], 90)
+        if st.get("exitCode") != 0:
+            return show(st)
+        pid, port, tip, want_raw, remote_sum = (st.get("stdout") or "").strip().split("\t")
+        want = int(want_raw)
+        url = f"http://{tip}:{port}/{urllib.parse.quote(os.path.basename(remote))}"
+        temp = f"{local}.nexus-part-{transfer_id}"
+        h = hashlib.sha256()
+        total = 0
+        try:
+            with urllib.request.urlopen(url, timeout=600) as resp, open(temp, "xb") as fh:
+                while chunk := resp.read(1 << 20):
+                    fh.write(chunk)
+                    h.update(chunk)
+                    total += len(chunk)
+            got = h.hexdigest()
+            if total != want or got != remote_sum:
+                raise SystemExit(f"CORRUPT: {total}/{want} bytes, sha {got} vs remote {remote_sum}")
+            os.replace(temp, local)
+        finally:
+            if os.path.exists(temp):
+                os.unlink(temp)
+            execv(["sh", "-c", "kill \"$1\" 2>/dev/null || true; rm -f \"$2\"",
+                   "z13-cleanup", pid, f"/tmp/.z13-transfer-{transfer_id}.log"], 30)
+        print(f"{local}  {total} bytes  sha256 ok")
+        return 0
+
+    if cmd == "bench":
+        t = time.time()
+        r = execv(["true"], 30)
+        rtt = (time.time() - t) * 1000
+        print(f"exec rtt  {rtt:.1f} ms   (endpoint {_state['ep'][0]} via {_state['ep'][1]})")
+        t = time.time()
+        r = execv(["sh", "-c",
+                   f"curl -s -m 120 -H 'content-type: application/json' "
+                   f"-d '{{\"messages\":[{{\"role\":\"user\",\"content\":\""
+                   f"Count from 1 to 400 separated by spaces.\"}}],"
+                   f"\"max_tokens\":400,\"temperature\":0}}' "
+                   f"http://127.0.0.1:{MODEL_PORT}/v1/chat/completions "
+                   f"| python3 -c \"import sys,json;d=json.load(sys.stdin);"
+                   f"u=d.get('usage',{{}});print(u.get('completion_tokens',0))\""], 200)
+        try:
+            n = int((r.get("stdout") or "0").strip())
+        except ValueError:
+            n = 0
+        dt = time.time() - t
+        if n:
+            print(f"decode    {n / dt:.1f} tok/s over {dt:.1f}s for {n} tokens")
+        else:
+            print("decode    FAILED " + (r.get("stderr") or "")[:200])
+        return 0
+
+    raise SystemExit(f"unknown verb {cmd!r}\n" + __doc__)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

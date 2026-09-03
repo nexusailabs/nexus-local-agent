@@ -51,6 +51,7 @@ See [docs/TOOLS.md](docs/TOOLS.md) for the tool contract and [docs/CODEX_HANDOFF
 - `packages/research` — search providers, fetch/extraction, Deep Research and citation audit.
 - `packages/memory` — durable memory store.
 - `ops/macos/model-route-proxy.mjs` — direct HTTP streaming routes from the MBA to both model APIs, with TB4 priority and automatic Tailscale fallback.
+- `ops/macos/z13` — authenticated MBA-side CLI for Z13 execution plus one-file-at-a-time private HTTP transfers that avoid argv and daemon body-size limits.
 - `packages/router` — independent inference/execution routing.
 - `packages/orchestrator` — planner and verifier.
 - `packages/executor` — function-calling agent loop and screenshot -> vision feedback.
