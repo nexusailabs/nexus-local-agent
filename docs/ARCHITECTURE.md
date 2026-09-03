@@ -46,7 +46,8 @@ Execution nodes may advertise **zero models**.
 
 ### Default dual-node policy
 
-- MBP is the planning, inference, and independent verification node.
+- MBP Qwen Next is the planning and independent verification brain.
+- Z13's model is preferred for the reasoning/tool loop of a step that Z13 executes, so its GPU participates instead of serving only as fallback inference.
 - Z13 is the first-choice execution worker for platform-neutral shell, filesystem, Git, code, build, test, browser, container, CI, and long-running work.
 - MBP remains an executor only for macOS/Metal-specific work and automatic Z13 outage fallback.
 - Node execution probes an ordered private-route list before each side effect: TB4 first, Tailscale second. It never retries after an execution request starts.

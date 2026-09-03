@@ -106,8 +106,13 @@ describe("heterogeneous routing", () => {
 
   it("separates inference and execution targets", () => {
     const route = routeStep(nodes, "code");
-    expect(route.inference.nodeId).toBeDefined();
+    expect(route.inference.nodeId).toBe("z13");
     expect(route.execution.nodeId).toBe("z13");
+  });
+
+  it("keeps planning and verification quality-first when no worker is preferred", () => {
+    expect(routeInference(nodes, "plan").nodeId).toBe("m5");
+    expect(routeInference(nodes, "review").nodeId).toBe("m5");
   });
 
   it("keeps a remote Z13 worker ahead of the M5 failover executor", () => {

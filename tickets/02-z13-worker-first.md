@@ -6,7 +6,7 @@ OMP and other MCP-capable harnesses can submit one objective that is planned and
 
 ## Acceptance
 
-- Live inference routes select `mbp-m5-max`.
+- Planning and verification inference select `mbp-m5-max`; Z13-executed step inference selects the Z13 model.
 - Live platform-neutral execution routes select `z13-strix-halo` while both nodes are online.
 - `nexus_run_task` invokes the planner-executor-verifier lifecycle.
 - Returned evidence names both inference and execution nodes.

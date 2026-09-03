@@ -122,7 +122,7 @@ function createServer(): McpServer {
     {
       title: "Run Task on Nexus Fabric",
       description:
-        "Primary entrypoint for autonomous work. The MBP plans and verifies with Qwen Next while Nexus routes shell, code, build, test, browser, and container execution to the Z13 worker by default. Larger objectives become a dependency-aware parallel plan; tiny objectives remain one worker step to avoid split overhead.",
+        "Primary entrypoint for autonomous work. MBP Qwen Next plans and independently verifies; the Z13 model reasons through worker steps and executes their shell, code, build, test, browser, and container tools. Larger objectives become a dependency-aware parallel plan; tiny objectives remain one worker step to avoid split overhead.",
       inputSchema: z
         .object({
           objective: z.string().min(1).max(200_000),
