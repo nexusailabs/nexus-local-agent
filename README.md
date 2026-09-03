@@ -158,9 +158,26 @@ export NEXUS_NODE_BASE_URL='http://z13.local:7790'
 export NEXUS_NODE_CAPABILITIES='inference,exec,fs,git,containers,browser,computer,code,documents,ci,long-running'
 export NEXUS_NODE_TAGS='strix-halo,rocm,vulkan,tb4'
 export NEXUS_EXECUTION_CLASS=96
-# Set NEXUS_MODELS_JSON to a control-plane-reachable llama.cpp /v1 endpoint.
+export NEXUS_MODELS_JSON='[
+  {
+    "id":"Qwen3.8-27B",
+    "provider":"llama.cpp",
+    "baseUrl":"http://127.0.0.1:18083/v1",
+    "contextWindow":131072,
+    "maxOutputTokens":32768,
+    "capabilities":["reasoning","coding","tool-use","long-context","review"],
+    "costClass":15,
+    "speedClass":90,
+    "qualityClass":88
+  }
+]'
 pnpm dev:node
 ```
+
+The Z13 service runs two 131,072-token slots in one unified KV pool with Q8 KV
+cache, full ROCm offload, Flash Attention, prompt reuse, locked model pages, and
+the model's embedded MTP draft head. This keeps two worker requests concurrent
+while exposing enough context for repository-scale tool loops.
 
 Linux physical computer-use currently expects an available screenshot backend (`grim` or `gnome-screenshot`) and input backend (`xdotool`, with `wtype` used for typing when available).
 
