@@ -143,7 +143,7 @@ function createServer(): McpServer {
             .min(1)
             .optional()
             .describe(
-              "Optional repository path that must exist on the selected execution node.",
+              "Optional source Git repository path on the MBA control host. Nexus snapshots it into isolated worker workspaces and safely integrates returned patches.",
             ),
           max_attempts: z.number().int().min(1).max(4).default(2),
           timeout_ms: z

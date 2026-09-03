@@ -56,7 +56,7 @@ const node = NodeSpec.parse({
   reliabilityClass: Number(process.env.NEXUS_RELIABILITY_CLASS ?? 90),
   models,
 });
-const tools = new LocalToolRuntime(node);
+const tools = new LocalToolRuntime(node, token);
 const controlRoutes = parseControlRoutes(process.env);
 const registration = controlRoutes.length
   ? new ControlRouteRegistration(

@@ -1,14 +1,260 @@
-import type { AgentTask,NodeSpec,PlanStep,ToolCall,ToolResult } from '@nexus/protocol';import { ToolResult as ToolResultSchema } from '@nexus/protocol';import { LocalModelClient,type ChatMessage } from '@nexus/provider';import { routeStep } from '@nexus/router';import { getTool,toModelTool,toolsForStep } from '@nexus/tools';
-type Fetch=typeof fetch;type RouteMap=Record<string,string[]>;const trimSlash=(value:string):string=>value.replace(/\/$/,'');const routeMap=(raw:string|undefined):RouteMap=>{if(!raw)return{};const parsed:unknown=JSON.parse(raw);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed))throw new Error('NEXUS_NODE_ROUTES_JSON must be an object');return Object.fromEntries(Object.entries(parsed).map(([nodeId,routes])=>{if(!Array.isArray(routes)||routes.some((route)=>typeof route!=='string'))throw new Error(`NEXUS_NODE_ROUTES_JSON.${nodeId} must be a URL array`);return[nodeId,routes.map((route)=>trimSlash(new URL(route).toString()))];}));};
-export class NodeClient{private readonly routes:RouteMap;private readonly fetchImpl:Fetch;constructor(private readonly node:NodeSpec,private readonly token:string,options:{routesJson?:string;fetchImpl?:Fetch}={}){this.routes=routeMap(options.routesJson??process.env.NEXUS_NODE_ROUTES_JSON);this.fetchImpl=options.fetchImpl??fetch;}async tool(call:ToolCall):Promise<ToolResult>{const candidates=[...(this.routes[this.node.id]??[]),this.node.baseUrl].map(trimSlash).filter((value,index,all)=>all.indexOf(value)===index),failures:string[]=[];let selectedBaseUrl:string|undefined;for(const baseUrl of candidates){try{const health=await this.fetchImpl(`${baseUrl}/health`,{signal:AbortSignal.timeout(2000)});if(!health.ok)throw new Error(`health returned HTTP ${health.status}`);selectedBaseUrl=baseUrl;break;}catch(error){failures.push(`${baseUrl}: ${error instanceof Error?error.message:String(error)}`);}}if(!selectedBaseUrl)throw new Error(`node ${this.node.id} unreachable (${failures.join('; ')})`);const response=await this.fetchImpl(`${selectedBaseUrl}/v1/tool/execute`,{method:'POST',headers:{authorization:`Bearer ${this.token}`,'content-type':'application/json'},body:JSON.stringify(call)});if(!response.ok)throw new Error(`node ${this.node.id} tool failed on ${selectedBaseUrl}: ${response.status} ${await response.text()}; not retried to avoid duplicate side effects`);return ToolResultSchema.parse(await response.json());}}
-export type ControlToolExecutor=(call:ToolCall,context:{task:AgentTask;step:PlanStep;inferenceNode:NodeSpec;executionNode:NodeSpec})=>Promise<ToolResult>;
-export type StepExecution={summary:string;evidence:string[];transcript:string[];routing:{inferenceNodeId:string;modelId:string;executionNodeId:string};toolCalls:number};export type NodeSource=()=>NodeSpec[];
-export class StepExecutor{constructor(private readonly nodes:NodeSource,private readonly token:string,private readonly controlTools?:ControlToolExecutor){}
-  async execute(task:AgentTask,step:PlanStep,cwd?:string,maxTurns=32):Promise<StepExecution>{const nodes=this.nodes(),route=routeStep(nodes,step.kind,step.execution),inferenceNode=nodes.find((node)=>node.id===route.inference.nodeId),executionNode=nodes.find((node)=>node.id===route.execution.nodeId),model=inferenceNode?.models.find((candidate)=>candidate.id===route.inference.modelId);if(!inferenceNode||!executionNode||!model)throw new Error('routed node or model disappeared');const llm=new LocalModelClient(model),remote=new NodeClient(executionNode,this.token),descriptors=toolsForStep(step.kind,executionNode),messages:ChatMessage[]=[{role:'user',content:[`Overall objective: ${task.objective}`,`Step: ${step.title} — ${step.description}`,`Acceptance: ${step.acceptance.join('; ')||'none specified'}`,`Default working directory: ${cwd??task.repoPath??'unspecified'}`,`Inference node: ${inferenceNode.id}`,`Execution node: ${executionNode.id} (${executionNode.platform}${executionNode.region?`, region=${executionNode.region}`:''})`].join('\n')}],transcript:string[]=[];let toolCalls=0;const routing={inferenceNodeId:inferenceNode.id,modelId:model.id,executionNodeId:executionNode.id};
-    for(let turn=0;turn<maxTurns;turn++){const response=await llm.turn({system:['You are Nexus, an unattended autonomous local agent.','Use provided tools whenever external state must be inspected or changed.','Do not ask for permission before using an available tool.','The inference node and execution node can be different machines.','Screenshots returned by tools are attached as image inputs on the next turn.','When the acceptance criteria are verifiably satisfied, return a concise final response with what changed and evidence.','Never claim a command, file change, browser action, research result, or test succeeded unless a tool result supports it.'].join('\n'),messages,tools:descriptors.map(toModelTool),maxTokens:8192,reasoningEffort:step.kind==='review'||step.kind==='research'?'medium':'low'});
-      if(!response.toolCalls.length){if(!response.content.trim())throw new Error(`step ${step.id} produced neither tools nor final content`);return{summary:response.content,evidence:transcript.slice(-12),transcript,routing,toolCalls};}
-      messages.push({role:'assistant',content:response.content||null,toolCalls:response.toolCalls});
-      for(const requested of response.toolCalls){toolCalls++;const call:ToolCall={id:requested.id,name:requested.name,arguments:requested.arguments};const descriptor=getTool(call.name);let result:ToolResult;if(!descriptor)result={toolCallId:call.id,name:call.name,ok:false,text:`unknown tool ${call.name}`,images:[]};else if(descriptor.scope==='control'){result=this.controlTools?await this.controlTools(call,{task,step,inferenceNode,executionNode}):{toolCallId:call.id,name:call.name,ok:false,text:'control tool runtime unavailable',images:[]};}else result=await remote.tool(call);const compact={name:result.name,ok:result.ok,text:result.text.slice(-40_000),data:result.data};transcript.push(JSON.stringify(compact));messages.push({role:'tool',toolCallId:call.id,content:JSON.stringify(compact)});if(result.images.length){messages.push({role:'user',content:[{type:'text',text:`Visual result from ${result.name}. Inspect it before choosing the next action.`},...result.images.map((image)=>({type:'image_url' as const,image_url:{url:`data:${image.mimeType};base64,${image.dataBase64}`,detail:'high' as const}}))]});}}
-      if(messages.length>48)messages.splice(1,Math.max(0,messages.length-48));
-    }throw new Error(`step ${step.id} exhausted ${maxTurns} turns`);
-  }}
+import type {
+  AgentTask,
+  NodeSpec,
+  PlanStep,
+  ToolCall,
+  ToolResult,
+} from "@nexus/protocol";
+import { ToolResult as ToolResultSchema } from "@nexus/protocol";
+import { LocalModelClient, type ChatMessage } from "@nexus/provider";
+import { routeStep } from "@nexus/router";
+import { getTool, toModelTool, toolsForStep } from "@nexus/tools";
+type Fetch = typeof fetch;
+type RouteMap = Record<string, string[]>;
+const trimSlash = (value: string): string => value.replace(/\/$/, "");
+const routeMap = (raw: string | undefined): RouteMap => {
+  if (!raw) return {};
+  const parsed: unknown = JSON.parse(raw);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    throw new Error("NEXUS_NODE_ROUTES_JSON must be an object");
+  return Object.fromEntries(
+    Object.entries(parsed).map(([nodeId, routes]) => {
+      if (
+        !Array.isArray(routes) ||
+        routes.some((route) => typeof route !== "string")
+      )
+        throw new Error(`NEXUS_NODE_ROUTES_JSON.${nodeId} must be a URL array`);
+      return [
+        nodeId,
+        routes.map((route) => trimSlash(new URL(route).toString())),
+      ];
+    }),
+  );
+};
+export class NodeClient {
+  private readonly routes: RouteMap;
+  private readonly fetchImpl: Fetch;
+  constructor(
+    private readonly node: NodeSpec,
+    private readonly token: string,
+    options: { routesJson?: string; fetchImpl?: Fetch } = {},
+  ) {
+    this.routes = routeMap(
+      options.routesJson ?? process.env.NEXUS_NODE_ROUTES_JSON,
+    );
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+  async tool(call: ToolCall): Promise<ToolResult> {
+    const candidates = [...(this.routes[this.node.id] ?? []), this.node.baseUrl]
+        .map(trimSlash)
+        .filter((value, index, all) => all.indexOf(value) === index),
+      failures: string[] = [];
+    let selectedBaseUrl: string | undefined;
+    for (const baseUrl of candidates) {
+      try {
+        const health = await this.fetchImpl(`${baseUrl}/health`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (!health.ok)
+          throw new Error(`health returned HTTP ${health.status}`);
+        selectedBaseUrl = baseUrl;
+        break;
+      } catch (error) {
+        failures.push(
+          `${baseUrl}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (!selectedBaseUrl)
+      throw new Error(
+        `node ${this.node.id} unreachable (${failures.join("; ")})`,
+      );
+    const response = await this.fetchImpl(
+      `${selectedBaseUrl}/v1/tool/execute`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(call),
+      },
+    );
+    if (!response.ok)
+      throw new Error(
+        `node ${this.node.id} tool failed on ${selectedBaseUrl}: ${response.status} ${await response.text()}; not retried to avoid duplicate side effects`,
+      );
+    return ToolResultSchema.parse(await response.json());
+  }
+}
+export type ControlToolExecutor = (
+  call: ToolCall,
+  context: {
+    task: AgentTask;
+    step: PlanStep;
+    inferenceNode: NodeSpec;
+    executionNode: NodeSpec;
+  },
+) => Promise<ToolResult>;
+export type StepExecution = {
+  summary: string;
+  evidence: string[];
+  transcript: string[];
+  routing: {
+    inferenceNodeId: string;
+    modelId: string;
+    executionNodeId: string;
+  };
+  toolCalls: number;
+};
+export type NodeSource = () => NodeSpec[];
+export class StepExecutor {
+  constructor(
+    private readonly nodes: NodeSource,
+    private readonly token: string,
+    private readonly controlTools?: ControlToolExecutor,
+  ) {}
+  async execute(
+    task: AgentTask,
+    step: PlanStep,
+    cwd?: string,
+    maxTurns = 32,
+  ): Promise<StepExecution> {
+    const nodes = this.nodes(),
+      route = routeStep(nodes, step.kind, step.execution),
+      inferenceNode = nodes.find((node) => node.id === route.inference.nodeId),
+      executionNode = nodes.find((node) => node.id === route.execution.nodeId),
+      model = inferenceNode?.models.find(
+        (candidate) => candidate.id === route.inference.modelId,
+      );
+    if (!inferenceNode || !executionNode || !model)
+      throw new Error("routed node or model disappeared");
+    const llm = new LocalModelClient(model),
+      remote = new NodeClient(executionNode, this.token),
+      descriptors = toolsForStep(step.kind, executionNode),
+      messages: ChatMessage[] = [
+        {
+          role: "user",
+          content: [
+            `Overall objective: ${task.objective}`,
+            `Step: ${step.title} — ${step.description}`,
+            `Acceptance: ${step.acceptance.join("; ") || "none specified"}`,
+            `Default working directory: ${cwd ?? task.repoPath ?? "unspecified"}`,
+            `Inference node: ${inferenceNode.id}`,
+            `Execution node: ${executionNode.id} (${executionNode.platform}${executionNode.region ? `, region=${executionNode.region}` : ""})`,
+          ].join("\n"),
+        },
+      ],
+      transcript: string[] = [];
+    let toolCalls = 0;
+    const routing = {
+      inferenceNodeId: inferenceNode.id,
+      modelId: model.id,
+      executionNodeId: executionNode.id,
+    };
+    for (let turn = 0; turn < maxTurns; turn++) {
+      const response = await llm.turn({
+        system: [
+          "You are Nexus, an unattended autonomous local agent.",
+          "Use provided tools whenever external state must be inspected or changed.",
+          "Do not ask for permission before using an available tool.",
+          "The inference node and execution node can be different machines.",
+          "When a temporary workspace path is supplied, confine all repository reads, writes, builds, and tests to that workspace.",
+          "Screenshots returned by tools are attached as image inputs on the next turn.",
+          "When the acceptance criteria are verifiably satisfied, return a concise final response with what changed and evidence.",
+          "Never claim a command, file change, browser action, research result, or test succeeded unless a tool result supports it.",
+        ].join("\n"),
+        messages,
+        tools: descriptors.map(toModelTool),
+        maxTokens: 8192,
+        reasoningEffort:
+          step.kind === "review" || step.kind === "research" ? "medium" : "low",
+      });
+      if (!response.toolCalls.length) {
+        if (!response.content.trim())
+          throw new Error(
+            `step ${step.id} produced neither tools nor final content`,
+          );
+        return {
+          summary: response.content,
+          evidence: transcript.slice(-12),
+          transcript,
+          routing,
+          toolCalls,
+        };
+      }
+      messages.push({
+        role: "assistant",
+        content: response.content || null,
+        toolCalls: response.toolCalls,
+      });
+      for (const requested of response.toolCalls) {
+        toolCalls++;
+        const call: ToolCall = {
+          id: requested.id,
+          name: requested.name,
+          arguments: requested.arguments,
+        };
+        const descriptor = getTool(call.name);
+        let result: ToolResult;
+        if (!descriptor)
+          result = {
+            toolCallId: call.id,
+            name: call.name,
+            ok: false,
+            text: `unknown tool ${call.name}`,
+            images: [],
+          };
+        else if (descriptor.scope === "control") {
+          result = this.controlTools
+            ? await this.controlTools(call, {
+                task,
+                step,
+                inferenceNode,
+                executionNode,
+              })
+            : {
+                toolCallId: call.id,
+                name: call.name,
+                ok: false,
+                text: "control tool runtime unavailable",
+                images: [],
+              };
+        } else result = await remote.tool(call);
+        const compact = {
+          name: result.name,
+          ok: result.ok,
+          text: result.text.slice(-40_000),
+          data: result.data,
+        };
+        transcript.push(JSON.stringify(compact));
+        messages.push({
+          role: "tool",
+          toolCallId: call.id,
+          content: JSON.stringify(compact),
+        });
+        if (result.images.length) {
+          messages.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: `Visual result from ${result.name}. Inspect it before choosing the next action.`,
+              },
+              ...result.images.map((image) => ({
+                type: "image_url" as const,
+                image_url: {
+                  url: `data:${image.mimeType};base64,${image.dataBase64}`,
+                  detail: "high" as const,
+                },
+              })),
+            ],
+          });
+        }
+      }
+      if (messages.length > 48)
+        messages.splice(1, Math.max(0, messages.length - 48));
+    }
+    throw new Error(`step ${step.id} exhausted ${maxTurns} turns`);
+  }
+}

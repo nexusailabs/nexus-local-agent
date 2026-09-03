@@ -54,6 +54,12 @@ Execution nodes may advertise **zero models**.
 - Tiny work uses one Z13 execution step. Larger work is split only across genuinely independent DAG steps, up to the configured parallelism, so task splitting improves throughput instead of adding ceremony.
 - Interactive harnesses enter this lifecycle through `nexus_run_task`; direct chat completion alone is inference and does not imply distributed execution.
 
+### Distributed repository workspace
+
+For a task with `repoPath`, the control plane snapshots tracked files plus non-ignored untracked files from the source repository. Every ready DAG step receives a separate baseline Git workspace on its routed node. Independent steps may therefore run concurrently without sharing a checkout.
+
+After a batch completes, each worker returns a full binary Git patch. The control plane first applies all patches to an isolated integration copy. Only if they merge cleanly and the source fingerprint is unchanged does it apply one combined patch to the source repository. Transfer, execution, concurrent-source-change, or merge failure leaves the source untouched and retains remote workspaces for inspection. Dependent batches snapshot the newly integrated source state.
+
 ## Hard invariants
 
 1. **Do not collapse inference and execution.** A model may run on M5 while its tools execute on Z13 or HK mini.
@@ -175,7 +181,7 @@ Unattended execution and unauthenticated remote execution are different concerns
 The current branch establishes a functional tool fabric, not a finished production scheduler. Highest-value next work:
 
 1. persisted task/step leases, idempotency keys, cancellation and crash-safe resume;
-2. repository/worktree distribution and conflict-safe parallel write ownership (until this lands, `repoPath` must already exist on the routed execution node);
+2. persisted remote-workspace inventory, expiry cleanup, and crash recovery for retained failed workspaces;
 3. EWMA latency, tokens/sec, failure rate and active-load feedback in routing;
 4. SSE/WebSocket event stream and operator UI;
 5. control-plane state replication and HK standby leader election/failover;
