@@ -37,7 +37,9 @@ export NEXUS_NODE_PORT=7790
 export NEXUS_NODE_CAPABILITIES=inference,exec,fs,git,code,documents,long-running
 export NEXUS_NODE_REACHABILITY=lan
 export NEXUS_NODE_TAGS=apple-silicon,m5-max,metal,mlx,tailscale
-export NEXUS_EXECUTION_CLASS=70
+# Keep the M5 available as a macOS-specific/failover executor without letting it
+# outrank the dedicated Z13 worker for ordinary shell, code, build, and test work.
+export NEXUS_EXECUTION_CLASS=10
 export NEXUS_RELIABILITY_CLASS=95
 export NEXUS_HEARTBEAT_MS=10000
 export NEXUS_MODELS_JSON="$(/usr/bin/python3 -c '

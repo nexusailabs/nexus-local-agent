@@ -14,6 +14,22 @@ export interface RoutedToolResult {
   result: ToolResultType;
 }
 
+export interface AgentRunRequest {
+  objective: string;
+  kind?:
+    | "plan"
+    | "code"
+    | "shell"
+    | "build"
+    | "test"
+    | "review"
+    | "research"
+    | "general";
+  repoPath?: string;
+  maxAttempts?: number;
+  metadata?: Record<string, unknown>;
+}
+
 const trimSlash = (value: string): string => value.replace(/\/$/, "");
 
 function parseRouteMap(value: string | undefined): RouteMap {
@@ -25,11 +41,15 @@ function parseRouteMap(value: string | undefined): RouteMap {
   const routes: RouteMap = {};
   for (const [nodeId, candidates] of Object.entries(parsed)) {
     if (!Array.isArray(candidates) || candidates.length === 0) {
-      throw new Error(`NEXUS_NODE_ROUTES_JSON.${nodeId} must be a non-empty array`);
+      throw new Error(
+        `NEXUS_NODE_ROUTES_JSON.${nodeId} must be a non-empty array`,
+      );
     }
     routes[nodeId] = candidates.map((candidate) => {
       if (typeof candidate !== "string") {
-        throw new Error(`NEXUS_NODE_ROUTES_JSON.${nodeId} contains a non-string URL`);
+        throw new Error(
+          `NEXUS_NODE_ROUTES_JSON.${nodeId} contains a non-string URL`,
+        );
       }
       const url = new URL(candidate);
       if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -57,10 +77,14 @@ export class NexusClient {
   ) {
     if (!token) throw new Error("NEXUS_SHARED_TOKEN is required");
     this.controlUrl = trimSlash(
-      options.controlUrl ?? process.env.NEXUS_CONTROL_URL ?? "http://127.0.0.1:7788",
+      options.controlUrl ??
+        process.env.NEXUS_CONTROL_URL ??
+        "http://127.0.0.1:7788",
     );
     this.defaultNodeId =
-      options.defaultNodeId ?? process.env.NEXUS_DEFAULT_NODE_ID ?? "mbp-m5-max";
+      options.defaultNodeId ??
+      process.env.NEXUS_DEFAULT_NODE_ID ??
+      "mbp-m5-max";
     this.routes = parseRouteMap(
       options.routesJson ?? process.env.NEXUS_NODE_ROUTES_JSON,
     );
@@ -90,28 +114,55 @@ export class NexusClient {
     return RuntimeNode.array().parse(await response.json());
   }
 
+  async runAgent(
+    request: AgentRunRequest,
+    timeoutMs = 3_600_000,
+  ): Promise<unknown> {
+    const response = await this.fetchImpl(`${this.controlUrl}/v1/agent/run`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify(request),
+      signal: AbortSignal.timeout(
+        Math.min(3_610_000, Math.max(5_000, timeoutMs)),
+      ),
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Nexus agent fabric returned HTTP ${response.status}: ${await response.text()}`,
+      );
+    }
+    return response.json();
+  }
+
   async executeTool(
     name: string,
     arguments_: Record<string, unknown>,
     options: { nodeId?: string; timeoutMs?: number } = {},
   ): Promise<RoutedToolResult> {
     const nodeId = options.nodeId ?? this.defaultNodeId;
-    const node = (await this.listNodes()).find((entry) => entry.node.id === nodeId);
+    const node = (await this.listNodes()).find(
+      (entry) => entry.node.id === nodeId,
+    );
     if (!node) throw new Error(`Nexus node is not registered: ${nodeId}`);
-    if (node.status !== "online") throw new Error(`Nexus node is stale: ${nodeId}`);
+    if (node.status !== "online")
+      throw new Error(`Nexus node is stale: ${nodeId}`);
 
     const candidates = [node.node.baseUrl, ...(this.routes[nodeId] ?? [])]
       .map(trimSlash)
       .filter((value, index, all) => all.indexOf(value) === index);
     const failures: string[] = [];
-    const timeoutMs = Math.min(3_610_000, Math.max(5_000, options.timeoutMs ?? 30_000));
+    const timeoutMs = Math.min(
+      3_610_000,
+      Math.max(5_000, options.timeoutMs ?? 30_000),
+    );
     let selectedBaseUrl: string | undefined;
     for (const baseUrl of candidates) {
       try {
         const health = await this.fetchImpl(`${baseUrl}/health`, {
           signal: AbortSignal.timeout(2_000),
         });
-        if (!health.ok) throw new Error(`health returned HTTP ${health.status}`);
+        if (!health.ok)
+          throw new Error(`health returned HTTP ${health.status}`);
         selectedBaseUrl = baseUrl;
         break;
       } catch (error) {
@@ -126,16 +177,19 @@ export class NexusClient {
       );
     }
 
-    const response = await this.fetchImpl(`${selectedBaseUrl}/v1/tool/execute`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify({
-        id: `mcp-${crypto.randomUUID()}`,
-        name,
-        arguments: arguments_,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const response = await this.fetchImpl(
+      `${selectedBaseUrl}/v1/tool/execute`,
+      {
+        method: "POST",
+        headers: this.headers(),
+        body: JSON.stringify({
+          id: `mcp-${crypto.randomUUID()}`,
+          name,
+          arguments: arguments_,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      },
+    );
     if (!response.ok) {
       throw new Error(
         `Nexus node ${nodeId} returned HTTP ${response.status} on ${selectedBaseUrl}; the operation was not retried to avoid duplicate side effects`,
