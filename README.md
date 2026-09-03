@@ -49,6 +49,7 @@ See [docs/TOOLS.md](docs/TOOLS.md) for the tool contract and [docs/CODEX_HANDOFF
 - `packages/tools` — first-class tool registry and model-facing JSON schemas.
 - `packages/research` — search providers, fetch/extraction, Deep Research and citation audit.
 - `packages/memory` — durable memory store.
+- `ops/macos/model-route-proxy.mjs` — direct HTTP streaming routes from the MBA to both model APIs, with TB4 priority and automatic Tailscale fallback.
 - `packages/router` — independent inference/execution routing.
 - `packages/orchestrator` — planner and verifier.
 - `packages/executor` — function-calling agent loop and screenshot -> vision feedback.

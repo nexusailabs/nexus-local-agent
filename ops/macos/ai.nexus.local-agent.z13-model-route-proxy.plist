@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.nexus.local-agent.z13-model-route-proxy</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/kei/projects/nexus-local-agent/ops/macos/run-model-route-proxy.sh</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NEXUS_MODEL_TB4_URL</key>
+    <string>http://169.254.77.2:8081</string>
+    <key>NEXUS_MODEL_TAILSCALE_URL</key>
+    <string>http://100.71.59.61:8081</string>
+    <key>NEXUS_MODEL_PROXY_PORT</key>
+    <string>18083</string>
+  </dict>
+  <key>WorkingDirectory</key>
+  <string>/Users/kei/projects/nexus-local-agent</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/kei/Library/Logs/Nexus/z13-model-route-proxy.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/kei/Library/Logs/Nexus/z13-model-route-proxy.error.log</string>
+</dict>
+</plist>

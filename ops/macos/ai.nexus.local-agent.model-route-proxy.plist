@@ -3,10 +3,10 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>ai.nexus.local-agent.tb4-inference-tunnel</string>
+  <string>ai.nexus.local-agent.model-route-proxy</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/kei/projects/nexus-local-agent/ops/macos/run-tb4-inference-tunnel.sh</string>
+    <string>/Users/kei/projects/nexus-local-agent/ops/macos/run-model-route-proxy.sh</string>
   </array>
   <key>WorkingDirectory</key>
   <string>/Users/kei/projects/nexus-local-agent</string>
@@ -14,13 +14,13 @@
   <true/>
   <key>KeepAlive</key>
   <true/>
-  <key>ProcessType</key>
-  <string>Background</string>
   <key>ThrottleInterval</key>
   <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
   <key>StandardOutPath</key>
-  <string>/Users/kei/Library/Logs/Nexus/tb4-inference-tunnel.log</string>
+  <string>/Users/kei/Library/Logs/Nexus/model-route-proxy.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/kei/Library/Logs/Nexus/tb4-inference-tunnel.error.log</string>
+  <string>/Users/kei/Library/Logs/Nexus/model-route-proxy.error.log</string>
 </dict>
 </plist>
