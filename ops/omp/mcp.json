@@ -1,0 +1,32 @@
+{
+  "mcpServers": {
+    "nexus": {
+      "type": "stdio",
+      "command": "/Users/kei/projects/nexus-local-agent/ops/macos/run-nexus-mcp.sh",
+      "args": []
+    }
+  },
+  "disabledServers": [
+    "aitakecall",
+    "apps-in-toss",
+    "chrome-devtools",
+    "computer-use",
+    "cua_repl",
+    "deepseek-executor",
+    "fetch",
+    "filesystem",
+    "gmail-ceo-gudax",
+    "gmail-lawdvk",
+    "gmail-rbctus",
+    "gmail-red7000",
+    "gmail-tkspt1",
+    "memory",
+    "node_repl",
+    "openaiDeveloperDocs",
+    "playwright",
+    "playwright-z13",
+    "sequential-thinking",
+    "taobao",
+    "whatsapp"
+  ]
+}
