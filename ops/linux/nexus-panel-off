@@ -1,13 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-for brightness in /sys/class/backlight/*/brightness; do
-  test -e "$brightness" && echo 0 >"$brightness"
+# The Z13 boots to a Linux virtual console. DRM property writes report success
+# but are immediately overridden by that console, leaving eDP powered. Make the
+# console itself own blanking and re-assert it after any local input wakes it.
+while true; do
+  if test -c /dev/tty1; then
+    /usr/bin/setterm --blank force --term linux </dev/tty1 >/dev/tty1
+  fi
+  /usr/bin/sleep 5
 done
-
-connector_id=$(
-  /usr/bin/modetest -M amdgpu -c 2>/dev/null |
-    /usr/bin/awk '$3 == "connected" && $4 == "eDP-1" { print $1; exit }'
-)
-test -n "$connector_id"
-/usr/bin/modetest -M amdgpu -w "$connector_id:DPMS:3" >/dev/null
